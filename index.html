@@ -39,10 +39,10 @@ if (!window.storage) {
 }
 
 // ─── Constants ───
-const ASSET_TYPES = ["PC", "MAC", "Laptop", "Server", "Monitor", "Printer", "Other"];
-const STATUSES = ["Active", "Inactive", "Maintenance", "Decommissioned"];
-const EMP_STATUSES = ["Active", "Inactive", "On Leave", "Terminated"];
-const STORE = { assets: "hwa-assets-v3", employees: "hwa-employees-v3", settings: "hwa-settings-v3", user: "hwa-user-v3", textSize: "hwa-textsize" };
+const DEFAULT_ASSET_TYPES = ["PC", "MAC", "Laptop", "Server", "Monitor", "Printer", "Other"];
+const DEFAULT_STATUSES = ["Active", "Inactive", "Maintenance", "Decommissioned"];
+const DEFAULT_EMP_STATUSES = ["Active", "Inactive", "On Leave", "Terminated"];
+const STORE = { assets: "hwa-assets-v3", employees: "hwa-employees-v3", settings: "hwa-settings-v3", user: "hwa-user-v3", textSize: "hwa-textsize", dropdowns: "hwa-dropdowns-v1" };
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const now = () => new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -118,7 +118,17 @@ function App() {
   const [auditLog, setAuditLog] = useState([]);
   const [settingsUnlocked, setSettingsUnlocked] = useState(!SETTINGS_PASSWORD);
   const [undoStack, setUndoStack] = useState([]);
-  const [textSize, setTextSize] = useState("md"); // sm, md, lg, xl // { type: "asset"|"employee", data, action: "delete"|"edit" }
+  const [textSize, setTextSize] = useState("md"); // sm, md, lg, xl
+  const [dropdowns, setDropdowns] = useState({
+    assetTypes: [...DEFAULT_ASSET_TYPES],
+    statuses: [...DEFAULT_STATUSES],
+    empStatuses: [...DEFAULT_EMP_STATUSES],
+  });
+
+  // Convenience accessors
+  const ASSET_TYPES = dropdowns.assetTypes;
+  const STATUSES = dropdowns.statuses;
+  const EMP_STATUSES = dropdowns.empStatuses; // { type: "asset"|"employee", data, action: "delete"|"edit" }
 
   const notify = (msg, type = "ok", action = null) => setToast({ msg, type, k: Date.now(), action });
 
@@ -170,12 +180,28 @@ function App() {
         }
       } catch {}
       try { const r = await window.storage.get(STORE.textSize); if (r?.value) setTextSize(r.value); } catch {}
+      try {
+        const r = await window.storage.get(STORE.dropdowns);
+        if (r?.value) {
+          const d = JSON.parse(r.value);
+          setDropdowns({
+            assetTypes: d.assetTypes?.length ? d.assetTypes : [...DEFAULT_ASSET_TYPES],
+            statuses: d.statuses?.length ? d.statuses : [...DEFAULT_STATUSES],
+            empStatuses: d.empStatuses?.length ? d.empStatuses : [...DEFAULT_EMP_STATUSES],
+          });
+        }
+      } catch {}
     })();
   }, []);
 
   const changeTextSize = useCallback(async (size) => {
     setTextSize(size);
     try { await window.storage.set(STORE.textSize, size); } catch {}
+  }, []);
+
+  const saveDropdowns = useCallback(async (d) => {
+    setDropdowns(d);
+    try { await window.storage.set(STORE.dropdowns, JSON.stringify(d)); } catch {}
   }, []);
 
   const saveAssets = useCallback(async (v) => { setAssets(v); try { await window.storage.set(STORE.assets, JSON.stringify(v)); } catch {} }, []);
@@ -1316,9 +1342,107 @@ function App() {
   // ─── AUDIT LOG VIEW ───
   const AuditLogView = () => {
     useEffect(() => { if (settings.url && !auditLog.length) fetchAuditLog(); }, []);
-    const actionColor = (a) => ({ ADD: T.green, EDIT: T.accent, DELETE: T.red, PUSH: T.orange, PULL: T.purple }[a] || T.textMid);
-    const actionIcon = (a) => ({ ADD: "➕", EDIT: "✏️", DELETE: "🗑️", PUSH: "⬆️", PULL: "⬇️" }[a] || "📝");
-    return (<div style={{ maxWidth: 900, margin: "0 auto" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}><h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📝 Audit Log</h2><button style={S.btn("pri")} onClick={fetchAuditLog} disabled={syncing}>{I(ICO.sync, 15)} {syncing ? "Loading..." : "Refresh"}</button></div>{currentUser && (<div style={{ fontSize: 12, color: T.textMid, marginBottom: 12 }}>Logged in as <strong style={{ color: T.accent }}>{currentUser}</strong></div>)}{!settings.url ? (<div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}><div style={{ fontSize: 36, marginBottom: 8 }}>🔗</div><div style={{ fontSize: 14, fontWeight: 600 }}>Connect to Google Sheets first</div></div>) : auditLog.length === 0 ? (<div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}><div style={{ fontSize: 36, marginBottom: 8 }}>📋</div><div style={{ fontSize: 14, fontWeight: 600 }}>No audit entries yet</div></div>) : (<div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Time", "User", "Action", "Sheet", "Target", "Details"].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead><tbody>{auditLog.map((entry, i) => (<tr key={i} style={{ transition: "background .12s" }} onMouseEnter={e => e.currentTarget.style.background = T.cardHover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><td style={{ ...S.td, fontSize: 11, fontFamily: T.mono, color: T.textDim, whiteSpace: "nowrap" }}>{entry.Timestamp}</td><td style={{ ...S.td, fontSize: 12 }}><span title={entry.User} style={{ color: T.accent }}>{(entry.User || "").split("@")[0] || "—"}</span></td><td style={S.td}><span style={{ ...S.badge(actionColor(entry.Action)), display: "inline-flex", alignItems: "center", gap: 3 }}>{actionIcon(entry.Action)} {entry.Action}</span></td><td style={{ ...S.td, fontSize: 12, color: T.textMid }}>{entry.Sheet}</td><td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, fontWeight: 600 }}>{entry.Target || "—"}</td><td style={{ ...S.td, fontSize: 11, color: T.textDim, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={entry.Details}>{entry.Details || "—"}</td></tr>))}</tbody></table></div>)}<div style={{ marginTop: 8, fontSize: 11, color: T.textDim }}>Showing {auditLog.length} most recent entries</div></div>);
+    const actionColor = (a) => ({ ADD: T.green, EDIT: T.accent, DELETE: T.red, PUSH: T.orange, PULL: T.purple }[a?.toUpperCase()] || T.textMid);
+    const actionIcon = (a) => ({ ADD: "➕", EDIT: "✏️", DELETE: "🗑️", PUSH: "⬆️", PULL: "⬇️" }[a?.toUpperCase()] || "📝");
+
+    // Robust field getter — handles different casing from Google Sheets
+    const f = (entry, ...keys) => {
+      for (const k of keys) {
+        if (entry[k] !== undefined && entry[k] !== null && entry[k] !== "") return String(entry[k]);
+        const lk = k.toLowerCase();
+        for (const ek of Object.keys(entry)) {
+          if (ek.toLowerCase() === lk) return String(entry[ek]);
+        }
+      }
+      return "";
+    };
+
+    return (
+      <div style={{ maxWidth: 960, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📝 Audit Log</h2>
+          <button style={S.btn("pri")} onClick={fetchAuditLog} disabled={syncing}>{I(ICO.sync, 15)} {syncing ? "Loading..." : "Refresh"}</button>
+        </div>
+        {currentUser && (
+          <div style={{ fontSize: 12, color: T.textMid, marginBottom: 12 }}>
+            Logged in as <strong style={{ color: T.accent }}>{currentUser}</strong>
+          </div>
+        )}
+        {!settings.url ? (
+          <div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>🔗</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Connect to Google Sheets first</div>
+          </div>
+        ) : auditLog.length === 0 ? (
+          <div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>No audit entries yet</div>
+          </div>
+        ) : (
+          <>
+            {/* Debug: show raw field names of first entry */}
+            {auditLog.length > 0 && (
+              <details style={{ marginBottom: 10, fontSize: 11, color: T.textDim }}>
+                <summary style={{ cursor: "pointer" }}>🔍 Debug: Raw field names from sheet</summary>
+                <pre style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginTop: 6, fontSize: 10, fontFamily: T.mono, color: T.textMid, whiteSpace: "pre-wrap", overflow: "auto", maxHeight: 120 }}>
+                  {JSON.stringify(Object.keys(auditLog[0]), null, 2)}{"\n"}
+                  {JSON.stringify(auditLog[0], null, 2)}
+                </pre>
+              </details>
+            )}
+            <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...S.th, width: "18%" }}>Time</th>
+                    <th style={{ ...S.th, width: "12%" }}>User</th>
+                    <th style={{ ...S.th, width: "10%" }}>Action</th>
+                    <th style={{ ...S.th, width: "10%" }}>Sheet</th>
+                    <th style={{ ...S.th, width: "20%" }}>Target</th>
+                    <th style={{ ...S.th, width: "30%" }}>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLog.map((entry, i) => {
+                    const ts = f(entry, "Timestamp", "timestamp", "Time", "time", "Date", "date");
+                    const user = f(entry, "User", "user", "Email", "email", "Modified By", "modifiedBy");
+                    const action = f(entry, "Action", "action", "Type", "type");
+                    const sheet = f(entry, "Sheet", "sheet", "Tab", "tab");
+                    const target = f(entry, "Target", "target", "Name", "name", "Computer Name", "computerName");
+                    const details = f(entry, "Details", "details", "Notes", "notes", "Description", "description");
+                    return (
+                      <tr key={i} style={{ transition: "background .12s" }}
+                        onMouseEnter={e => e.currentTarget.style.background = T.cardHover}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <td style={{ ...S.td, fontSize: 11, fontFamily: T.mono, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ts}>
+                          {ts || "—"}
+                        </td>
+                        <td style={{ ...S.td, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <span title={user} style={{ color: T.accent }}>{user ? user.split("@")[0] : "—"}</span>
+                        </td>
+                        <td style={S.td}>
+                          {action ? (
+                            <span style={{ ...S.badge(actionColor(action)), display: "inline-flex", alignItems: "center", gap: 3 }}>
+                              {actionIcon(action)} {action.toUpperCase()}
+                            </span>
+                          ) : "—"}
+                        </td>
+                        <td style={{ ...S.td, fontSize: 12, color: T.textMid }}>{sheet || "—"}</td>
+                        <td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={target}>{target || "—"}</td>
+                        <td style={{ ...S.td, fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={details}>{details || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+        <div style={{ marginTop: 8, fontSize: 11, color: T.textDim }}>
+          Showing {auditLog.length} most recent entries
+        </div>
+      </div>
+    );
   };
 
   // ─── SETTINGS VIEW (with password gate) ───
@@ -1332,6 +1456,63 @@ function App() {
     const checkPw = () => {
       if (pw === SETTINGS_PASSWORD) { setSettingsUnlocked(true); setPwError(false); }
       else { setPwError(true); }
+    };
+
+    // ─── Dropdown Editor Sub-component ───
+    const DropdownEditor = ({ label, items, defaults, onChange }) => {
+      const [newItem, setNewItem] = useState("");
+      const [expanded, setExpanded] = useState(false);
+      const addItem = () => {
+        const val = newItem.trim();
+        if (!val) return;
+        if (items.some(i => i.toLowerCase() === val.toLowerCase())) { notify(`"${val}" already exists`, "warn"); return; }
+        onChange([...items, val]);
+        setNewItem("");
+        notify(`Added "${val}"`);
+      };
+      const removeItem = (idx) => {
+        if (items.length <= 1) { notify("Must have at least one option", "warn"); return; }
+        const removed = items[idx];
+        onChange(items.filter((_, i) => i !== idx));
+        notify(`Removed "${removed}"`);
+      };
+      const moveItem = (idx, dir) => {
+        const next = [...items];
+        const target = idx + dir;
+        if (target < 0 || target >= next.length) return;
+        [next[idx], next[target]] = [next[target], next[idx]];
+        onChange(next);
+      };
+      const resetToDefaults = () => { onChange([...defaults]); notify(`${label} reset to defaults`); };
+      const isDefault = JSON.stringify(items) === JSON.stringify(defaults);
+      return (
+        <div style={{ marginBottom: 16, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+          <button onClick={() => setExpanded(!expanded)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "none", border: "none", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: 600 }}>
+            <span>{label} ({items.length})</span>
+            <span style={{ color: T.textDim, fontSize: 11 }}>{expanded ? "▲" : "▼"}</span>
+          </button>
+          {expanded && (
+            <div style={{ padding: "0 14px 14px" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+                {items.map((item, idx) => (
+                  <div key={idx} style={{ display: "inline-flex", alignItems: "center", gap: 3, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 6px 4px 10px", fontSize: 12 }}>
+                    <button onClick={() => moveItem(idx, -1)} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", padding: 0, fontSize: 10 }} title="Move left">◀</button>
+                    <span>{item}</span>
+                    <button onClick={() => moveItem(idx, 1)} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", padding: 0, fontSize: 10 }} title="Move right">▶</button>
+                    <button onClick={() => removeItem(idx)} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", padding: "0 2px", fontSize: 13, lineHeight: 1 }} title="Remove">×</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input style={{ ...S.fi, flex: 1, padding: "6px 10px", fontSize: 12 }} value={newItem} onChange={e => setNewItem(e.target.value)} placeholder="Add new option..."
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} />
+                <button style={{ ...S.btn("pri"), padding: "6px 12px" }} onClick={addItem}>{I(ICO.plus, 13)} Add</button>
+                {!isDefault && <button style={{ ...S.btn("ghost"), padding: "6px 8px", fontSize: 11 }} onClick={resetToDefaults} title="Reset to defaults">{I(ICO.undo, 12)}</button>}
+              </div>
+            </div>
+          )}
+        </div>
+      );
     };
 
     // Password gate
@@ -1429,6 +1610,17 @@ function App() {
             <button style={S.btn("red")} onClick={() => setEraseConfirm({ show: true, target: "assets", typed: "" })}>{I(ICO.trash, 14)} Clear Assets ({assets.length})</button>
             <button style={S.btn("red")} onClick={() => setEraseConfirm({ show: true, target: "employees", typed: "" })}>{I(ICO.trash, 14)} Clear Employees ({employees.length})</button>
           </div>
+        </div>
+
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>📝 Dropdown Options</h3>
+          <div style={{ fontSize: 11, color: T.textDim, marginBottom: 14 }}>Customize the choices that appear in dropdown menus across the app. Changes are saved per browser.</div>
+          <DropdownEditor label="Asset Types" items={dropdowns.assetTypes} defaults={DEFAULT_ASSET_TYPES}
+            onChange={v => saveDropdowns({ ...dropdowns, assetTypes: v })} />
+          <DropdownEditor label="Asset Statuses" items={dropdowns.statuses} defaults={DEFAULT_STATUSES}
+            onChange={v => saveDropdowns({ ...dropdowns, statuses: v })} />
+          <DropdownEditor label="Employee Statuses" items={dropdowns.empStatuses} defaults={DEFAULT_EMP_STATUSES}
+            onChange={v => saveDropdowns({ ...dropdowns, empStatuses: v })} />
         </div>
 
         <div style={{ ...S.card, background: T.accentDim, border: `1px solid ${T.accent}25` }}>
