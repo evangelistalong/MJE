@@ -436,12 +436,12 @@ function App() {
   });
 
   // ─── Text Size Scaling ───
-  const TEXT_SCALES = { sm: 12, md: 14, lg: 16, xl: 19 };
-  const baseFont = TEXT_SCALES[textSize] || 14;
+  const TEXT_ZOOM = { sm: 0.85, md: 1.0, lg: 1.15, xl: 1.3 };
+  const zoomLevel = TEXT_ZOOM[textSize] || 1.0;
 
   // ─── Styles ───
   const S = {
-    wrap: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: baseFont },
+    wrap: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14, zoom: zoomLevel },
     hdr: { background: T.bg2, borderBottom: `1px solid ${T.border}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 },
     nav: { display: "flex", gap: 2, flexWrap: "wrap" },
     navBtn: (a) => ({ padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: T.font, display: "flex", alignItems: "center", gap: 5, background: a ? T.accentDim : "transparent", color: a ? T.accent : T.textMid, transition: "all .15s" }),
@@ -1419,10 +1419,17 @@ function App() {
             {/* Debug: show raw field names of first entry */}
             {auditLog.length > 0 && (
               <details style={{ marginBottom: 10, fontSize: 11, color: T.textDim }}>
-                <summary style={{ cursor: "pointer" }}>🔍 Debug: Raw field names from sheet</summary>
-                <pre style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginTop: 6, fontSize: 10, fontFamily: T.mono, color: T.textMid, whiteSpace: "pre-wrap", overflow: "auto", maxHeight: 120 }}>
-                  {JSON.stringify(Object.keys(auditLog[0]), null, 2)}{"\n"}
-                  {JSON.stringify(auditLog[0], null, 2)}
+                <summary style={{ cursor: "pointer" }}>🔍 Debug: Raw data from sheet (click to expand)</summary>
+                <pre style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginTop: 6, fontSize: 10, fontFamily: T.mono, color: T.textMid, whiteSpace: "pre-wrap", overflow: "auto", maxHeight: 300 }}>
+                  {"Keys: "}{JSON.stringify(Object.keys(auditLog[0]))}{"\n\n"}
+                  {"First entry:\n"}{JSON.stringify(auditLog[0], null, 2)}{"\n\n"}
+                  {"Extracted values:\n"}
+                  {"  Timestamp: "}{JSON.stringify(f(auditLog[0], "Timestamp", "timestamp", "Time", "time", "Date", "date"))}{"\n"}
+                  {"  User: "}{JSON.stringify(f(auditLog[0], "User", "user", "Email", "email"))}{"\n"}
+                  {"  Action: "}{JSON.stringify(f(auditLog[0], "Action", "action", "Type", "type"))}{"\n"}
+                  {"  Sheet: "}{JSON.stringify(f(auditLog[0], "Sheet", "sheet", "Tab", "tab"))}{"\n"}
+                  {"  Target: "}{JSON.stringify(f(auditLog[0], "Target", "target", "Name", "name"))}{"\n"}
+                  {"  Details: "}{JSON.stringify(f(auditLog[0], "Details", "details", "Notes", "notes"))}{"\n"}
                 </pre>
               </details>
             )}
@@ -1430,12 +1437,12 @@ function App() {
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                 <thead>
                   <tr>
-                    <th style={{ ...S.th, width: "18%" }}>Time</th>
-                    <th style={{ ...S.th, width: "12%" }}>User</th>
-                    <th style={{ ...S.th, width: "10%" }}>Action</th>
-                    <th style={{ ...S.th, width: "10%" }}>Sheet</th>
-                    <th style={{ ...S.th, width: "20%" }}>Target</th>
-                    <th style={{ ...S.th, width: "30%" }}>Details</th>
+                    <th style={{ ...S.th, position: "static", width: "18%" }}>Time</th>
+                    <th style={{ ...S.th, position: "static", width: "12%" }}>User</th>
+                    <th style={{ ...S.th, position: "static", width: "10%" }}>Action</th>
+                    <th style={{ ...S.th, position: "static", width: "10%" }}>Sheet</th>
+                    <th style={{ ...S.th, position: "static", width: "20%" }}>Target</th>
+                    <th style={{ ...S.th, position: "static", width: "30%" }}>Details</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1447,10 +1454,10 @@ function App() {
                     const target = f(entry, "Target", "target", "Name", "name", "Computer Name", "computerName");
                     const details = f(entry, "Details", "details", "Notes", "notes", "Description", "description");
                     return (
-                      <tr key={i} style={{ transition: "background .12s" }}
+                      <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : T.bg2, transition: "background .12s" }}
                         onMouseEnter={e => e.currentTarget.style.background = T.cardHover}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <td style={{ ...S.td, fontSize: 11, fontFamily: T.mono, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ts}>
+                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : T.bg2}>
+                        <td style={{ ...S.td, fontSize: 11, fontFamily: T.mono, color: T.textMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ts}>
                           {ts || "—"}
                         </td>
                         <td style={{ ...S.td, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1464,8 +1471,8 @@ function App() {
                           ) : "—"}
                         </td>
                         <td style={{ ...S.td, fontSize: 12, color: T.textMid }}>{sheet || "—"}</td>
-                        <td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={target}>{target || "—"}</td>
-                        <td style={{ ...S.td, fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={details}>{details || "—"}</td>
+                        <td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={target}>{target || "—"}</td>
+                        <td style={{ ...S.td, fontSize: 11, color: T.textMid, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={details}>{details || "—"}</td>
                       </tr>
                     );
                   })}
