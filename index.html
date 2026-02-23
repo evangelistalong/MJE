@@ -23,8 +23,11 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ║  No one needs to touch the Settings page.                        ║
 // ╚════════════════════════════════════════════════════════════════════╝
 const PRECONFIGURED_URL = "";
-// ↑ Example:
-// const PRECONFIGURED_URL = "https://script.google.com/macros/s/AKfycbx.../exec";
+
+// ╔════════════════════════════════════════════════════════════════════╗
+// ║  🔒 SETTINGS PASSWORD (leave "" to show settings openly)         ║
+// ╚════════════════════════════════════════════════════════════════════╝
+const SETTINGS_PASSWORD = "admin";
 
 if (!window.storage) {
   window.storage = {
@@ -34,9 +37,6 @@ if (!window.storage) {
     async list(prefix) { const keys = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (!prefix || k.startsWith(prefix)) keys.push(k); } return { keys }; }
   };
 }
-
-
-// const PRECONFIGURED_URL = "https://script.google.com/macros/s/AKfycbx.../exec";
 
 // ─── Constants ───
 const ASSET_TYPES = ["PC", "MAC", "Laptop", "Server", "Monitor", "Printer", "Other"];
@@ -81,14 +81,19 @@ const ICO = {
   badge: "M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M8.5 3a4 4 0 100 8 4 4 0 000-8zM17 11l2 2 4-4",
   alert: "M12 9v4M12 17h.01",
   zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8",
+  lock: "M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4",
+  undo: "M3 7v6h6M21 17a9 9 0 00-9-9 9.05 9.05 0 00-6.36 2.64L3 13",
+  link: "M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71",
+  scan: "M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5",
 };
 
 // ─── Toast ───
-function Toast({ msg, type, onClose }) {
-  useEffect(() => { const t = setTimeout(onClose, 3200); return () => clearTimeout(t); }, [onClose]);
+function Toast({ msg, type, onClose, action }) {
+  useEffect(() => { const t = setTimeout(onClose, action ? 6000 : 3200); return () => clearTimeout(t); }, [onClose, action]);
   const bg = type === "error" ? T.red : type === "warn" ? T.orange : T.green;
-  return <div style={{ position: "fixed", top: 14, right: 14, zIndex: 9999, padding: "11px 18px", background: bg, color: "#fff", borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: T.font, boxShadow: "0 8px 30px rgba(0,0,0,.35)", maxWidth: 380, animation: "slideIn .25s ease", display: "flex", gap: 8, alignItems: "center" }}>
+  return <div style={{ position: "fixed", top: 14, right: 14, zIndex: 9999, padding: "11px 18px", background: bg, color: "#fff", borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: T.font, boxShadow: "0 8px 30px rgba(0,0,0,.35)", maxWidth: 420, animation: "slideIn .25s ease", display: "flex", gap: 8, alignItems: "center" }}>
     <span style={{ flex: 1 }}>{msg}</span>
+    {action && <button onClick={action.fn} style={{ background: "rgba(255,255,255,.25)", border: "none", color: "#fff", cursor: "pointer", padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, fontFamily: T.font }}>{action.label}</button>}
     <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 0 }}>{I(ICO.x, 14)}</button>
   </div>;
 }
@@ -100,20 +105,48 @@ function App() {
   const [assets, setAssets] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [settings, setSettings] = useState({ url: PRECONFIGURED_URL || "", sheet: "Assets" });
-  const [view, setView] = useState("assets"); // assets, employees, form, empForm, scan, settings
+  const [view, setView] = useState("assets");
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
   const [toast, setToast] = useState(null);
   const [syncing, setSyncing] = useState(false);
-  const [scanTarget, setScanTarget] = useState("device"); // device | empId | sheet
   const [ocrReady, setOcrReady] = useState(false);
   const [currentUser, setCurrentUser] = useState("");
-  const [userProfile, setUserProfile] = useState(null); // { name, email }
+  const [userProfile, setUserProfile] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
+  const [settingsUnlocked, setSettingsUnlocked] = useState(!SETTINGS_PASSWORD);
+  const [undoStack, setUndoStack] = useState([]); // { type: "asset"|"employee", data, action: "delete"|"edit" }
 
-  const notify = (msg, type = "ok") => setToast({ msg, type, k: Date.now() });
+  const notify = (msg, type = "ok", action = null) => setToast({ msg, type, k: Date.now(), action });
+
+  // ─── Undo ───
+  const pushUndo = (type, data, action) => {
+    setUndoStack(prev => [...prev.slice(-9), { type, data, action, ts: Date.now() }]);
+  };
+  const doUndo = () => {
+    if (!undoStack.length) return;
+    const last = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    if (last.type === "asset") {
+      if (last.action === "delete") {
+        saveAssets([...assets, last.data]);
+        notify("Asset restored");
+      } else if (last.action === "edit") {
+        saveAssets(assets.map(a => a.id === last.data.id ? last.data : a));
+        notify("Change undone");
+      }
+    } else if (last.type === "employee") {
+      if (last.action === "delete") {
+        saveEmployees([...employees, last.data]);
+        notify("Employee restored");
+      } else if (last.action === "edit") {
+        saveEmployees(employees.map(e => e.id === last.data.id ? last.data : e));
+        notify("Change undone");
+      }
+    }
+  };
 
   // ─── Persistence ───
   useEffect(() => {
@@ -176,19 +209,33 @@ function App() {
   const findEmployee = (empNo) => employees.find(e => e.empNo.toUpperCase() === empNo.trim().toUpperCase());
 
   // ─── Asset CRUD ───
-  const upsertAsset = (asset) => {
+  const upsertAsset = (asset, silent = false) => {
     if (!asset.computerName.trim()) { notify("Computer name required", "error"); return false; }
     const isEdit = assets.some(a => a.id === asset.id);
     if (!isNameUnique(asset.computerName, isEdit ? asset.id : null)) {
-      notify(`"${asset.computerName}" already exists — names must be unique`, "error"); return false;
+      notify(`"${asset.computerName}" already exists`, "error"); return false;
     }
     asset.lastModified = now();
     asset.modifiedBy = currentUser || "local";
-    if (isEdit) { saveAssets(assets.map(a => a.id === asset.id ? asset : a)); notify("Asset updated"); }
-    else { asset.dateAdded = now(); saveAssets([...assets, asset]); notify("Asset added"); }
-    setView("assets"); setEditId(null); return true;
+    if (isEdit) {
+      const old = assets.find(a => a.id === asset.id);
+      if (old) pushUndo("asset", { ...old }, "edit");
+      saveAssets(assets.map(a => a.id === asset.id ? asset : a));
+      if (!silent) notify("Asset updated");
+    } else {
+      asset.dateAdded = now();
+      saveAssets([...assets, asset]);
+      if (!silent) notify("Asset added");
+    }
+    if (!silent) { setView("assets"); setEditId(null); }
+    return true;
   };
-  const deleteAsset = (id) => { saveAssets(assets.filter(a => a.id !== id)); notify("Asset deleted"); };
+  const deleteAsset = (id) => {
+    const a = assets.find(x => x.id === id);
+    if (a) pushUndo("asset", { ...a }, "delete");
+    saveAssets(assets.filter(x => x.id !== id));
+    notify(`"${a?.computerName}" deleted`, "ok", { label: "Undo", fn: doUndo });
+  };
 
   // ─── Employee CRUD ───
   const upsertEmployee = (emp) => {
@@ -196,11 +243,23 @@ function App() {
     const isEdit = employees.some(e => e.id === emp.id);
     const dup = employees.find(e => e.empNo.toUpperCase() === emp.empNo.trim().toUpperCase() && e.id !== emp.id);
     if (dup) { notify(`Emp No "${emp.empNo}" already exists`, "error"); return false; }
-    if (isEdit) { saveEmployees(employees.map(e => e.id === emp.id ? emp : e)); notify("Employee updated"); }
-    else { saveEmployees([...employees, emp]); notify("Employee added"); }
+    if (isEdit) {
+      const old = employees.find(e => e.id === emp.id);
+      if (old) pushUndo("employee", { ...old }, "edit");
+      saveEmployees(employees.map(e => e.id === emp.id ? emp : e));
+      notify("Employee updated");
+    } else {
+      saveEmployees([...employees, emp]);
+      notify("Employee added");
+    }
     setView("employees"); setEditId(null); return true;
   };
-  const deleteEmployee = (id) => { saveEmployees(employees.filter(e => e.id !== id)); notify("Employee deleted"); };
+  const deleteEmployee = (id) => {
+    const e = employees.find(x => x.id === id);
+    if (e) pushUndo("employee", { ...e }, "delete");
+    saveEmployees(employees.filter(x => x.id !== id));
+    notify(`"${e?.fullName}" deleted`, "ok", { label: "Undo", fn: doUndo });
+  };
 
   // ─── Sync ───
   const apiCall = async (method, params = {}, body = null) => {
@@ -311,7 +370,7 @@ function App() {
   const S = {
     wrap: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 },
     hdr: { background: T.bg2, borderBottom: `1px solid ${T.border}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 },
-    nav: { display: "flex", gap: 2 },
+    nav: { display: "flex", gap: 2, flexWrap: "wrap" },
     navBtn: (a) => ({ padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: T.font, display: "flex", alignItems: "center", gap: 5, background: a ? T.accentDim : "transparent", color: a ? T.accent : T.textMid, transition: "all .15s" }),
     main: { maxWidth: 1200, margin: "0 auto", padding: 16 },
     bar: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center" },
@@ -325,6 +384,7 @@ function App() {
       ...(v === "red" && { background: T.redDim, color: T.red }),
       ...(v === "green" && { background: T.greenDim, color: T.green }),
       ...(v === "purple" && { background: T.purpleDim, color: T.purple }),
+      ...(v === "orange" && { background: T.orangeDim, color: T.orange }),
     }),
     card: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 20 },
     fg: { marginBottom: 14 },
@@ -409,7 +469,10 @@ function App() {
           </table>
         </div>
       )}
-      <div style={{ marginTop: 8, fontSize: 11, color: T.textDim }}>Showing {filtered.length} of {assets.length}</div>
+      <div style={{ marginTop: 8, fontSize: 11, color: T.textDim, display: "flex", justifyContent: "space-between" }}>
+        <span>Showing {filtered.length} of {assets.length}</span>
+        {undoStack.length > 0 && <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "3px 8px" }} onClick={doUndo}>{I(ICO.undo, 12)} Undo last action</button>}
+      </div>
     </>
   );
 
@@ -443,10 +506,12 @@ function App() {
         <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead><tr>
-              {["Emp No", "Full Name", "Department", "Position", "Email", "Location", "Status", ""].map(h => <th key={h} style={S.th}>{h}</th>)}
+              {["Emp No", "Full Name", "Department", "Position", "Email", "Location", "Status", "Devices", ""].map(h => <th key={h} style={S.th}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {filt.map(e => (
+              {filt.map(e => {
+                const devCount = assets.filter(a => a.empNo && a.empNo.toUpperCase() === e.empNo.toUpperCase()).length;
+                return (
                 <tr key={e.id} style={{ transition: "background .12s", cursor: "pointer" }}
                   onMouseEnter={ev => ev.currentTarget.style.background = T.cardHover}
                   onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}
@@ -458,15 +523,23 @@ function App() {
                   <td style={{ ...S.td, fontSize: 11, color: T.textMid }}>{e.email || "—"}</td>
                   <td style={S.td}>{e.location || "—"}</td>
                   <td style={S.td}><span style={S.badge(stColor(e.status))}>{e.status}</span></td>
+                  <td style={{ ...S.td, textAlign: "center", fontWeight: devCount > 0 ? 700 : 400, color: devCount > 0 ? T.accent : T.textDim }}>{devCount || "—"}</td>
                   <td style={S.td} onClick={ev => ev.stopPropagation()}>
-                    <button style={S.btn("ghost")} onClick={() => { if (confirm(`Delete "${e.fullName}"?`)) deleteEmployee(e.id); }}>{I(ICO.trash, 14)}</button>
+                    <div style={{ display: "flex", gap: 2 }}>
+                      <button style={S.btn("ghost")} title="Add device for this employee" onClick={() => { setEditId(null); setView("quickEntry"); /* pass emp context via state trick below */ window._preEmp = e; }}>{I(ICO.link, 13)}</button>
+                      <button style={S.btn("ghost")} onClick={() => { if (confirm(`Delete "${e.fullName}"?`)) deleteEmployee(e.id); }}>{I(ICO.trash, 14)}</button>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>
       )}
+      <div style={{ marginTop: 8, fontSize: 11, color: T.textDim, display: "flex", justifyContent: "space-between" }}>
+        <span>Showing {filt.length} of {employees.length}</span>
+        {undoStack.length > 0 && <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "3px 8px" }} onClick={doUndo}>{I(ICO.undo, 12)} Undo last action</button>}
+      </div>
     </>;
   };
 
@@ -476,11 +549,10 @@ function App() {
     const [f, sf] = useState(existing ? { ...existing } : emptyAsset());
     const [nameErr, setNameErr] = useState("");
     const [empLookupBusy, setEmpLookupBusy] = useState(false);
-    const [empStatus, setEmpStatus] = useState(null); // { status, fullName } after lookup
+    const [empStatus, setEmpStatus] = useState(null);
 
     const handleName = (v) => { sf({ ...f, computerName: v }); setNameErr(v.trim() && !isNameUnique(v, editId) ? "Name already exists!" : ""); };
 
-    // On load, check if existing asset has an employee assigned
     useEffect(() => {
       if (existing?.empNo) {
         const local = findEmployee(existing.empNo);
@@ -491,7 +563,6 @@ function App() {
     const lookupEmp = async (empNo) => {
       if (!empNo.trim()) return;
       setEmpStatus(null);
-      // Local first
       const local = findEmployee(empNo);
       if (local) {
         sf(prev => ({ ...prev, empNo: local.empNo, assignedTo: local.fullName, department: local.department, location: local.location || prev.location }));
@@ -500,7 +571,6 @@ function App() {
         else notify(`Found: ${local.fullName}`);
         return;
       }
-      // Remote
       if (settings.url) {
         setEmpLookupBusy(true);
         const remote = await lookupEmpRemote(empNo);
@@ -548,7 +618,6 @@ function App() {
               <input style={S.fi} value={f.model} onChange={e => sf({ ...f, model: e.target.value })} placeholder="Dell Latitude 5540" />
             </div>
 
-            {/* Employee Assignment Section */}
             <div style={{ gridColumn: "1/-1", background: T.purpleDim, border: `1px solid ${T.purple}30`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.purple, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>{I(ICO.badge, 15)} ASSIGN EMPLOYEE</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginBottom: 10 }}>
@@ -577,7 +646,7 @@ function App() {
                 <label style={S.lbl}>Location</label>
                 <input style={S.fi} value={f.location} onChange={e => sf({ ...f, location: e.target.value })} placeholder="Floor 3, Bldg A" />
               </div>
-              <div style={{ fontSize: 11, color: T.textDim }}>Type Emp No and press Enter or click Lookup to auto-fill. Or use the Scanner to scan a badge.</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>Type Emp No and press Enter or click Lookup to auto-fill.</div>
               {empStatus && empStatus.status !== "Active" && (
                 <div style={{ marginTop: 10, padding: "10px 14px", background: empStatus.status === "Terminated" ? T.redDim : T.orangeDim, border: `1px solid ${empStatus.status === "Terminated" ? T.red : T.orange}35`, borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 18 }}>{empStatus.status === "Terminated" ? "🚫" : empStatus.status === "On Leave" ? "🏖️" : "⚠️"}</span>
@@ -586,7 +655,7 @@ function App() {
                       {empStatus.fullName} — {empStatus.status.toUpperCase()}
                     </div>
                     <div style={{ fontSize: 11, color: T.textMid }}>
-                      {empStatus.status === "Terminated" ? "This employee has left the company. Are you sure you want to assign this device?" : empStatus.status === "On Leave" ? "This employee is currently on leave." : "This employee is currently inactive."}
+                      {empStatus.status === "Terminated" ? "This employee has left the company. Are you sure?" : empStatus.status === "On Leave" ? "This employee is on leave." : "This employee is currently inactive."}
                     </div>
                   </div>
                 </div>
@@ -611,6 +680,8 @@ function App() {
             )}
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+            {editId && <button type="button" style={S.btn("red")} onClick={() => { if (confirm(`Delete "${f.computerName}"?`)) { deleteAsset(f.id); setView("assets"); setEditId(null); } }}>{I(ICO.trash, 14)} Delete</button>}
+            <div style={{ flex: 1 }} />
             <button type="button" style={S.btn("out")} onClick={() => { setView("assets"); setEditId(null); }}>Cancel</button>
             <button type="submit" style={{ ...S.btn("pri"), padding: "9px 20px" }}>{I(ICO.check, 15)} {editId ? "Update" : "Add Asset"}</button>
           </div>
@@ -672,10 +743,12 @@ function App() {
           {editId && assigned.length > 0 && (
             <div style={{ background: T.accentDim, border: `1px solid ${T.accent}30`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, marginBottom: 6 }}>ASSIGNED DEVICES ({assigned.length})</div>
-              {assigned.map(a => <div key={a.id} style={{ fontSize: 12, fontFamily: T.mono, color: T.text }}>{tIcon(a.type)} {a.computerName} — {a.model || a.type}</div>)}
+              {assigned.map(a => <div key={a.id} style={{ fontSize: 12, fontFamily: T.mono, color: T.text, cursor: "pointer", padding: "3px 0" }} onClick={() => { setEditId(a.id); setView("form"); }}>{tIcon(a.type)} {a.computerName} — {a.model || a.type} <span style={{ color: T.accent, fontSize: 10 }}>edit →</span></div>)}
             </div>
           )}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            {editId && <button type="button" style={S.btn("red")} onClick={() => { if (confirm(`Delete "${f.fullName}"?`)) { deleteEmployee(f.id); setView("employees"); setEditId(null); } }}>{I(ICO.trash, 14)} Delete</button>}
+            <div style={{ flex: 1 }} />
             <button type="button" style={S.btn("out")} onClick={() => { setView("employees"); setEditId(null); }}>Cancel</button>
             <button type="submit" style={{ ...S.btn("pri"), padding: "9px 20px" }}>{I(ICO.check, 15)} {editId ? "Update" : "Add Employee"}</button>
           </div>
@@ -684,8 +757,10 @@ function App() {
     );
   };
 
-  // ─── SCANNER VIEW ───
-  const ScanView = () => {
+  // ═══════════════════════════════════════════
+  //  ★ QUICK ENTRY — Unified Scan Workflow
+  // ═══════════════════════════════════════════
+  const QuickEntryView = () => {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const streamRef = useRef(null);
@@ -693,10 +768,30 @@ function App() {
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState(0);
     const [ocrText, setOcrText] = useState("");
-    const [parsedRows, setParsedRows] = useState([]);
-    const [scannedEmp, setScannedEmp] = useState(null);
-    const [quickForm, setQuickForm] = useState(emptyAsset());
+    const [mode, setMode] = useState("device"); // "device" = scan device first, "employee" = scan emp first
+    const [scanWhat, setScanWhat] = useState("none"); // none | device | emp — what camera is targeting now
+
+    // Asset form state
+    const [af, setAf] = useState(emptyAsset());
     const [nameErr, setNameErr] = useState("");
+
+    // Employee state
+    const [empInfo, setEmpInfo] = useState(null); // found employee data
+    const [empLookupBusy, setEmpLookupBusy] = useState(false);
+
+    // Added assets list (for multi-add in employee-first mode)
+    const [addedAssets, setAddedAssets] = useState([]);
+
+    // Check for pre-selected employee from Employees list
+    useEffect(() => {
+      if (window._preEmp) {
+        const e = window._preEmp;
+        setMode("employee");
+        setEmpInfo(e);
+        setAf(prev => ({ ...prev, empNo: e.empNo, assignedTo: e.fullName, department: e.department, location: e.location || "" }));
+        window._preEmp = null;
+      }
+    }, []);
 
     const startCam = async () => {
       try {
@@ -707,7 +802,6 @@ function App() {
       } catch { notify("Camera access denied", "error"); }
     };
     const stopCam = () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } setCamOn(false); };
-
     useEffect(() => () => stopCam(), []);
 
     const capture = () => {
@@ -727,249 +821,317 @@ function App() {
       } catch (e) { setBusy(false); notify("OCR failed", "error"); return ""; }
     };
 
-    const handleScan = async () => {
-      const img = capture(); if (!img) return;
-      const text = await doOCR(img);
-      setOcrText(text);
-
-      if (scanTarget === "empId") {
-        // Extract emp ID from scanned text
-        const cleaned = text.replace(/[^a-zA-Z0-9\-_.\s]/g, "").trim();
-        const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
-        // Try to find an ID pattern (alphanumeric, common patterns like EMP-001, ID12345, etc.)
-        const idPattern = /\b([A-Z]{2,5}[-_]?\d{2,8})\b/i;
-        let foundId = "";
-        for (const line of lines) {
-          const m = line.match(idPattern);
-          if (m) { foundId = m[1].toUpperCase(); break; }
-        }
-        if (!foundId && lines.length) foundId = lines[0].replace(/\s+/g, "").substring(0, 20);
-
-        if (foundId) {
-          // Lookup employee
-          const local = findEmployee(foundId);
-          if (local) {
-            setScannedEmp({ ...local });
-            setQuickForm(prev => ({ ...prev, empNo: local.empNo, assignedTo: local.fullName, department: local.department, location: local.location || "" }));
-            if (local.status !== "Active") notify(`⚠ ${local.fullName} is ${local.status}`, "warn");
-            else notify(`Found: ${local.fullName}`);
-          } else if (settings.url) {
-            const remote = await lookupEmpRemote(foundId);
-            if (remote) {
-              const emp = { empNo: remote["Emp No"] || foundId, fullName: remote["Full Name"] || "", department: remote["Department"] || "", position: remote["Position"] || "", location: remote["Location"] || "", status: remote["Status"] || "Active" };
-              setScannedEmp(emp);
-              setQuickForm(prev => ({ ...prev, ...emp, assignedTo: emp.fullName }));
-              if (emp.status !== "Active") notify(`⚠ ${emp.fullName} is ${emp.status}`, "warn");
-              else notify(`Found: ${emp.fullName}`);
-            } else {
-              setScannedEmp(null);
-              setQuickForm(prev => ({ ...prev, empNo: foundId }));
-              notify(`Scanned ID: ${foundId} — not found in directory`, "warn");
-            }
-          } else {
-            setQuickForm(prev => ({ ...prev, empNo: foundId }));
-            notify(`Scanned ID: ${foundId}`, "warn");
-          }
-        }
-      } else if (scanTarget === "sheet") {
-        const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 3);
-        const rows = lines.map(line => {
-          const parts = line.split(/[|\t,;]+/).map(p => p.trim()).filter(Boolean);
-          if (parts.length >= 2) {
-            return { id: uid(), computerName: parts[0], type: guessType(parts[1] || ""), serialNumber: parts[2] || "", model: parts[3] || "", assignedTo: parts[4] || "", empNo: parts[5] || "", department: parts[6] || "", location: "", status: "Active", notes: "OCR import", dateAdded: now(), lastModified: now() };
-          }
-          return null;
-        }).filter(Boolean);
-        setParsedRows(rows);
-      } else {
-        // Single device scan
-        const lines = text.split("\n").filter(l => l.trim());
-        const cleaned = lines[0]?.trim().replace(/[^a-zA-Z0-9\-_.\s]/g, "") || "";
-        if (cleaned) {
-          setQuickForm(prev => ({ ...prev, computerName: cleaned }));
-          setNameErr(isNameUnique(cleaned) ? "" : "Name already exists!");
-        }
-      }
-    };
-
     const guessType = (s) => {
       const l = s.toLowerCase();
-      if (l.includes("mac") || l.includes("apple")) return "MAC";
-      if (l.includes("laptop") || l.includes("book")) return "Laptop";
-      if (l.includes("server")) return "Server";
-      if (l.includes("monitor")) return "Monitor";
-      if (l.includes("printer")) return "Printer";
+      if (l.includes("mac") || l.includes("apple") || l.includes("imac")) return "MAC";
+      if (l.includes("laptop") || l.includes("book") || l.includes("thinkpad") || l.includes("latitude")) return "Laptop";
+      if (l.includes("server") || l.includes("poweredge")) return "Server";
+      if (l.includes("monitor") || l.includes("display")) return "Monitor";
+      if (l.includes("printer") || l.includes("laserjet")) return "Printer";
       return "PC";
     };
 
-    const importRows = () => {
-      let added = 0, skip = 0;
-      const next = [...assets];
-      parsedRows.forEach(r => { if (r.computerName && isNameUnique(r.computerName)) { next.push(r); added++; } else skip++; });
-      saveAssets(next);
-      notify(`Imported ${added}${skip ? `, skipped ${skip} duplicates` : ""}`);
-      setParsedRows([]); setOcrText("");
+    // ── Scan Device Label ──
+    const scanDevice = async () => {
+      const img = capture(); if (!img) return;
+      const text = await doOCR(img);
+      setOcrText(text);
+      const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 1);
+      // Try to extract structured info from label
+      let cName = "", serial = "", model = "", type = "PC";
+
+      // Common label patterns
+      const snMatch = text.match(/(?:S\/?N|Serial)[:\s#]*([A-Z0-9\-]{4,})/i);
+      const modelMatch = text.match(/(?:Model|Product|P\/?N)[:\s#]*([A-Z0-9\-\s]{3,})/i);
+      const nameMatch = text.match(/(?:Name|Hostname|Computer)[:\s]*([A-Z0-9\-_.]{3,})/i);
+
+      if (snMatch) serial = snMatch[1].trim();
+      if (modelMatch) { model = modelMatch[1].trim(); type = guessType(model); }
+      if (nameMatch) cName = nameMatch[1].trim();
+
+      // Fallback: use first reasonable line as computer name
+      if (!cName && lines.length) {
+        const cleaned = lines[0].replace(/[^a-zA-Z0-9\-_.\s]/g, "").trim();
+        if (cleaned.length >= 2) cName = cleaned;
+      }
+      // Fallback model from second line
+      if (!model && lines.length > 1) {
+        const l2 = lines[1].replace(/[^a-zA-Z0-9\-_.\s]/g, "").trim();
+        if (l2.length >= 3) { model = l2; type = guessType(model); }
+      }
+
+      setAf(prev => ({
+        ...prev,
+        computerName: cName || prev.computerName,
+        serialNumber: serial || prev.serialNumber,
+        model: model || prev.model,
+        type: type || prev.type,
+      }));
+      setNameErr(cName && !isNameUnique(cName) ? "Name already exists!" : "");
+      setScanWhat("none");
+      if (cName || serial || model) notify(`Scanned: ${[cName, serial, model].filter(Boolean).join(" · ")}`);
+      else notify("Could not parse device info. Enter manually.", "warn");
     };
 
-    const addFromScan = () => {
-      if (!quickForm.computerName.trim()) { notify("Computer name required", "error"); return; }
-      if (nameErr) { notify("Name must be unique!", "error"); return; }
-      upsertAsset(quickForm);
-      setQuickForm(emptyAsset()); setOcrText(""); setScannedEmp(null);
+    // ── Scan Employee Badge / Sticker ──
+    const scanEmployee = async () => {
+      const img = capture(); if (!img) return;
+      const text = await doOCR(img);
+      setOcrText(text);
+      const cleaned = text.replace(/[^a-zA-Z0-9\-_.\s@]/g, "").trim();
+      const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
+
+      // Try to find an ID pattern
+      const idPattern = /\b([A-Z]{2,5}[-_]?\d{2,8})\b/i;
+      let foundId = "";
+      let foundName = "";
+
+      for (const line of lines) {
+        const m = line.match(idPattern);
+        if (m && !foundId) { foundId = m[1].toUpperCase(); }
+        // Try to detect a name (two capitalized words)
+        const nameM = line.match(/\b([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/);
+        if (nameM && !foundName) foundName = nameM[1];
+      }
+      if (!foundId && lines.length) foundId = lines[0].replace(/\s+/g, "").substring(0, 20);
+
+      if (foundId) {
+        // Lookup employee
+        const local = findEmployee(foundId);
+        if (local) {
+          setEmpInfo(local);
+          setAf(prev => ({ ...prev, empNo: local.empNo, assignedTo: local.fullName, department: local.department, location: local.location || prev.location }));
+          if (local.status !== "Active") notify(`⚠ ${local.fullName} is ${local.status}`, "warn");
+          else notify(`Found: ${local.fullName}`);
+        } else if (settings.url) {
+          setEmpLookupBusy(true);
+          const remote = await lookupEmpRemote(foundId);
+          setEmpLookupBusy(false);
+          if (remote) {
+            const emp = { empNo: remote["Emp No"] || foundId, fullName: remote["Full Name"] || foundName, department: remote["Department"] || "", position: remote["Position"] || "", location: remote["Location"] || "", status: remote["Status"] || "Active" };
+            setEmpInfo(emp);
+            setAf(prev => ({ ...prev, empNo: emp.empNo, assignedTo: emp.fullName, department: emp.department, location: emp.location || prev.location }));
+            if (emp.status !== "Active") notify(`⚠ ${emp.fullName} is ${emp.status}`, "warn");
+            else notify(`Found: ${emp.fullName}`);
+          } else {
+            setAf(prev => ({ ...prev, empNo: foundId, assignedTo: foundName }));
+            notify(`Scanned ID: ${foundId}${foundName ? " — " + foundName : ""} — not in directory`, "warn");
+          }
+        } else {
+          setAf(prev => ({ ...prev, empNo: foundId, assignedTo: foundName }));
+          notify(`Scanned ID: ${foundId}`, "warn");
+        }
+      }
+      setScanWhat("none");
     };
+
+    // ── Manual Emp Lookup ──
+    const manualLookup = async () => {
+      if (!af.empNo.trim()) return;
+      const local = findEmployee(af.empNo);
+      if (local) {
+        setEmpInfo(local);
+        setAf(prev => ({ ...prev, empNo: local.empNo, assignedTo: local.fullName, department: local.department, location: local.location || prev.location }));
+        if (local.status !== "Active") notify(`⚠ ${local.fullName} is ${local.status}`, "warn");
+        else notify(`Found: ${local.fullName}`);
+      } else if (settings.url) {
+        setEmpLookupBusy(true);
+        const remote = await lookupEmpRemote(af.empNo);
+        setEmpLookupBusy(false);
+        if (remote) {
+          const emp = { empNo: remote["Emp No"] || af.empNo, fullName: remote["Full Name"] || "", department: remote["Department"] || "", position: remote["Position"] || "", location: remote["Location"] || "", status: remote["Status"] || "Active" };
+          setEmpInfo(emp);
+          setAf(prev => ({ ...prev, empNo: emp.empNo, assignedTo: emp.fullName, department: emp.department, location: emp.location || prev.location }));
+        } else notify(`Not found`, "warn");
+      }
+    };
+
+    // ── Save Asset ──
+    const saveAssetFromEntry = () => {
+      if (!af.computerName.trim()) { notify("Computer name required", "error"); return; }
+      if (nameErr) { notify("Name must be unique!", "error"); return; }
+      const newAsset = { ...af };
+      if (upsertAsset(newAsset, true)) {
+        setAddedAssets(prev => [...prev, { ...newAsset }]);
+        notify(`✓ ${newAsset.computerName} added`);
+        // Reset for next device but keep employee info
+        setAf(prev => ({
+          ...emptyAsset(),
+          empNo: prev.empNo,
+          assignedTo: prev.assignedTo,
+          department: prev.department,
+          location: prev.location,
+        }));
+        setNameErr("");
+        setOcrText("");
+      }
+    };
+
+    const isScanning = scanWhat !== "none";
+    const scanColor = scanWhat === "emp" ? T.purple : T.accent;
 
     return (
-      <div style={{ maxWidth: 700, margin: "0 auto" }}>
+      <div style={{ maxWidth: 750, margin: "0 auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📷 Scanner</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{I(ICO.scan, 20)} Quick Entry</h2>
           <button style={S.btn("ghost")} onClick={() => { stopCam(); setView("assets"); }}>{I(ICO.x, 16)} Close</button>
         </div>
 
-        {/* Mode selector */}
+        {/* Workflow Mode Toggle */}
         <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-          {[
-            { m: "device", label: "Device Label", icon: ICO.pc },
-            { m: "empId", label: "Employee Badge", icon: ICO.badge },
-            { m: "sheet", label: "Spreadsheet", icon: ICO.list },
-          ].map(({ m, label, icon }) => (
-            <button key={m} style={{ ...S.btn(scanTarget === m ? "pri" : "out"), flex: 1, justifyContent: "center", padding: "10px 12px" }}
-              onClick={() => setScanTarget(m)}>{I(icon, 15)} {label}</button>
-          ))}
+          <button style={{ ...S.btn(mode === "device" ? "pri" : "out"), flex: 1, justifyContent: "center", padding: "10px 12px" }}
+            onClick={() => setMode("device")}>{I(ICO.pc, 15)} Device First</button>
+          <button style={{ ...S.btn(mode === "employee" ? "purple" : "out"), flex: 1, justifyContent: "center", padding: "10px 12px" }}
+            onClick={() => setMode("employee")}>{I(ICO.user, 15)} Employee First</button>
         </div>
 
-        <div style={S.card}>
-          {/* Camera */}
-          <div style={{ position: "relative", background: "#000", borderRadius: 8, overflow: "hidden", marginBottom: 14, aspectRatio: "16/10" }}>
-            <video ref={videoRef} style={{ width: "100%", height: "100%", objectFit: "cover", display: camOn ? "block" : "none" }} playsInline autoPlay muted />
-            {!camOn && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.textDim }}>
-                {I(ICO.cam, 44)}
-                <div style={{ marginTop: 10, fontSize: 13 }}>
-                  {scanTarget === "empId" ? "Point at employee badge / ID card" : scanTarget === "sheet" ? "Point at printed spreadsheet" : "Point at device label / sticker"}
+        <div style={{ display: "grid", gridTemplateColumns: camOn ? "1fr 1fr" : "1fr", gap: 14 }}>
+          {/* Camera Column */}
+          <div style={S.card}>
+            <div style={{ position: "relative", background: "#000", borderRadius: 8, overflow: "hidden", marginBottom: 12, aspectRatio: "4/3" }}>
+              <video ref={videoRef} style={{ width: "100%", height: "100%", objectFit: "cover", display: camOn ? "block" : "none" }} playsInline autoPlay muted />
+              {!camOn && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.textDim }}>
+                  {I(ICO.cam, 36)}
+                  <div style={{ marginTop: 8, fontSize: 12 }}>Camera for scanning labels & badges</div>
+                  <button style={{ ...S.btn("pri"), marginTop: 10, padding: "9px 20px" }} onClick={startCam}>Start Camera</button>
                 </div>
-                <button style={{ ...S.btn("pri"), marginTop: 14, padding: "10px 24px" }} onClick={startCam}>Start Camera</button>
+              )}
+              {busy && (
+                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.75)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ width: 160, height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${progress}%`, height: "100%", background: scanColor, borderRadius: 3, transition: "width .2s" }} />
+                  </div>
+                  <div style={{ color: T.textMid, fontSize: 12, marginTop: 6 }}>Reading... {progress}%</div>
+                </div>
+              )}
+              {camOn && !busy && isScanning && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                  <div style={{ border: `2px dashed ${scanColor}70`, borderRadius: 8, width: "75%", height: "45%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ color: "#fff", fontSize: 11, background: "rgba(0,0,0,.6)", padding: "3px 10px", borderRadius: 4 }}>
+                      {scanWhat === "emp" ? "Align badge / sticker" : "Align device label"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <canvas ref={canvasRef} style={{ display: "none" }} />
+
+            {camOn && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button style={{ ...S.btn("pri"), flex: 1, justifyContent: "center", padding: 10 }}
+                  onClick={() => { setScanWhat("device"); setTimeout(scanDevice, 100); }} disabled={busy}>
+                  {I(ICO.pc, 14)} Scan Device
+                </button>
+                <button style={{ ...S.btn("purple"), flex: 1, justifyContent: "center", padding: 10 }}
+                  onClick={() => { setScanWhat("emp"); setTimeout(scanEmployee, 100); }} disabled={busy}>
+                  {I(ICO.badge, 14)} Scan Badge
+                </button>
               </div>
             )}
-            {busy && (
-              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.75)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ width: 180, height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ width: `${progress}%`, height: "100%", background: T.accent, borderRadius: 3, transition: "width .2s" }} />
-                </div>
-                <div style={{ color: T.textMid, fontSize: 12, marginTop: 6 }}>Reading... {progress}%</div>
-              </div>
-            )}
-            {/* Scan guide overlay */}
-            {camOn && !busy && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-                <div style={{ border: `2px dashed ${scanTarget === "empId" ? T.purple : T.accent}50`, borderRadius: 8, width: scanTarget === "sheet" ? "85%" : "70%", height: scanTarget === "sheet" ? "80%" : "40%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ color: "#fff", fontSize: 11, background: "rgba(0,0,0,.5)", padding: "3px 10px", borderRadius: 4 }}>
-                    {scanTarget === "empId" ? "Align badge here" : scanTarget === "sheet" ? "Align spreadsheet" : "Align device label"}
-                  </span>
-                </div>
+
+            {!ocrReady && <div style={{ padding: 8, background: T.orangeDim, borderRadius: 8, fontSize: 12, color: T.orange, marginTop: 10 }}>⏳ OCR engine loading...</div>}
+
+            {ocrText && (
+              <div style={{ marginTop: 10 }}>
+                <label style={S.lbl}>Last OCR Result</label>
+                <pre style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, fontSize: 10, fontFamily: T.mono, color: T.textDim, whiteSpace: "pre-wrap", maxHeight: 80, overflow: "auto", margin: 0 }}>{ocrText}</pre>
               </div>
             )}
           </div>
-          <canvas ref={canvasRef} style={{ display: "none" }} />
 
-          {camOn && (
-            <button style={{ ...S.btn(scanTarget === "empId" ? "purple" : "pri"), width: "100%", justifyContent: "center", padding: 11, marginBottom: 14 }}
-              onClick={handleScan} disabled={busy}>
-              {I(ICO.cam, 16)} {scanTarget === "empId" ? "Scan Badge" : scanTarget === "sheet" ? "Capture Spreadsheet" : "Capture Label"}
-            </button>
-          )}
-
-          {!ocrReady && <div style={{ padding: 10, background: T.orangeDim, borderRadius: 8, fontSize: 12, color: T.orange, marginBottom: 12 }}>⏳ OCR engine loading...</div>}
-
-          {/* OCR Result */}
-          {ocrText && (
-            <div style={{ marginBottom: 14 }}>
-              <label style={S.lbl}>OCR Result</label>
-              <pre style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, fontSize: 11, fontFamily: T.mono, color: T.textMid, whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto" }}>{ocrText}</pre>
-            </div>
-          )}
-
-          {/* Scanned Employee Info */}
-          {scanTarget === "empId" && scannedEmp && (
-            <div style={{ background: scannedEmp.status === "Active" ? T.greenDim : scannedEmp.status === "Terminated" ? T.redDim : T.orangeDim, border: `1px solid ${scannedEmp.status === "Active" ? T.green : scannedEmp.status === "Terminated" ? T.red : T.orange}30`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: scannedEmp.status === "Active" ? T.green : scannedEmp.status === "Terminated" ? T.red : T.orange, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                {scannedEmp.status === "Active" ? "✓ EMPLOYEE FOUND" : scannedEmp.status === "Terminated" ? "🚫 EMPLOYEE TERMINATED" : `⚠ EMPLOYEE — ${scannedEmp.status.toUpperCase()}`}
+          {/* Form Column */}
+          <div>
+            {/* Employee Info Card */}
+            <div style={{ background: empInfo ? (empInfo.status === "Active" ? T.greenDim : empInfo.status === "Terminated" ? T.redDim : T.orangeDim) : T.purpleDim, border: `1px solid ${empInfo ? (empInfo.status === "Active" ? T.green : empInfo.status === "Terminated" ? T.red : T.orange) : T.purple}30`, borderRadius: 10, padding: 14, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: empInfo ? (empInfo.status === "Active" ? T.green : empInfo.status === "Terminated" ? T.red : T.orange) : T.purple, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                {I(ICO.badge, 14)}
+                {empInfo ? (empInfo.status === "Active" ? `✓ ${empInfo.fullName}` : `⚠ ${empInfo.fullName} — ${empInfo.status}`) : "EMPLOYEE"}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
-                <div><span style={{ color: T.textDim }}>Emp No:</span> <strong style={{ fontFamily: T.mono, color: T.purple }}>{scannedEmp.empNo}</strong></div>
-                <div><span style={{ color: T.textDim }}>Name:</span> <strong>{scannedEmp.fullName}</strong></div>
-                <div><span style={{ color: T.textDim }}>Dept:</span> {scannedEmp.department || "—"}</div>
-                <div><span style={{ color: T.textDim }}>Status:</span> <span style={S.badge(stColor(scannedEmp.status || "Active"))}>{scannedEmp.status || "Active"}</span></div>
-              </div>
-              {scannedEmp.status === "Terminated" && (
-                <div style={{ marginTop: 8, fontSize: 11, color: T.red, fontWeight: 500 }}>
-                  ⚠ This employee has left the company. Assigning a device to them may be an error.
+              {empInfo && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, fontSize: 11, marginBottom: 8 }}>
+                  <div><span style={{ color: T.textDim }}>ID:</span> <span style={{ fontFamily: T.mono, color: T.purple }}>{empInfo.empNo}</span></div>
+                  <div><span style={{ color: T.textDim }}>Dept:</span> {empInfo.department || "—"}</div>
                 </div>
               )}
-              {scannedEmp.status === "On Leave" && (
-                <div style={{ marginTop: 8, fontSize: 11, color: T.orange, fontWeight: 500 }}>
-                  ℹ This employee is currently on leave.
+              <div style={{ display: "flex", gap: 6 }}>
+                <input style={{ ...S.fiMono, flex: 1, padding: "7px 10px", fontSize: 12 }} value={af.empNo} onChange={e => setAf({ ...af, empNo: e.target.value })} placeholder="Emp No" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); manualLookup(); } }} />
+                <button type="button" style={{ ...S.btn("purple"), padding: "7px 12px" }} onClick={manualLookup} disabled={empLookupBusy}>
+                  {empLookupBusy ? "..." : "Lookup"}
+                </button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px", marginTop: 8 }}>
+                <div style={{ ...S.fg, marginBottom: 6 }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Assigned To</label>
+                  <input style={{ ...S.fi, padding: "6px 10px", fontSize: 12 }} value={af.assignedTo} onChange={e => setAf({ ...af, assignedTo: e.target.value })} placeholder="Name" />
                 </div>
+                <div style={{ ...S.fg, marginBottom: 6 }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Department</label>
+                  <input style={{ ...S.fi, padding: "6px 10px", fontSize: 12 }} value={af.department} onChange={e => setAf({ ...af, department: e.target.value })} placeholder="Dept" />
+                </div>
+              </div>
+              {empInfo && empInfo.status === "Terminated" && (
+                <div style={{ fontSize: 11, color: T.red, fontWeight: 600, marginTop: 4 }}>🚫 Employee has left the company</div>
               )}
             </div>
-          )}
 
-          {/* Quick-add form for device + empId scans */}
-          {(scanTarget === "device" || scanTarget === "empId") && ocrText && (
-            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{I(ICO.zap, 15)} Quick Add Asset</h3>
+            {/* Device Form */}
+            <div style={{ ...S.card, padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.accent, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>{I(ICO.pc, 14)} DEVICE DETAILS</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
-                <div style={S.fg}>
-                  <label style={S.lbl}>Computer Name *</label>
-                  <input style={{ ...S.fiMono, borderColor: nameErr ? T.red : T.border }} value={quickForm.computerName}
-                    onChange={e => { setQuickForm({ ...quickForm, computerName: e.target.value }); setNameErr(isNameUnique(e.target.value) ? "" : "Exists!"); }} />
+                <div style={{ ...S.fg, marginBottom: 10, gridColumn: "1/-1" }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Computer Name *</label>
+                  <input style={{ ...S.fiMono, padding: "7px 10px", fontSize: 12, borderColor: nameErr ? T.red : T.border }} value={af.computerName}
+                    onChange={e => { setAf({ ...af, computerName: e.target.value }); setNameErr(e.target.value.trim() && !isNameUnique(e.target.value) ? "Exists!" : ""); }} placeholder="WS-IT-001" />
                   {nameErr && <div style={{ color: T.red, fontSize: 10, marginTop: 2 }}>⚠ {nameErr}</div>}
                 </div>
-                <div style={S.fg}>
-                  <label style={S.lbl}>Type</label>
-                  <select style={{ ...S.fi, cursor: "pointer" }} value={quickForm.type} onChange={e => setQuickForm({ ...quickForm, type: e.target.value })}>{ASSET_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+                <div style={{ ...S.fg, marginBottom: 10 }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Type</label>
+                  <select style={{ ...S.fi, padding: "7px 10px", fontSize: 12, cursor: "pointer" }} value={af.type} onChange={e => setAf({ ...af, type: e.target.value })}>{ASSET_TYPES.map(t => <option key={t}>{t}</option>)}</select>
                 </div>
-                <div style={S.fg}>
-                  <label style={S.lbl}>Serial #</label>
-                  <input style={S.fiMono} value={quickForm.serialNumber} onChange={e => setQuickForm({ ...quickForm, serialNumber: e.target.value })} />
+                <div style={{ ...S.fg, marginBottom: 10 }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Status</label>
+                  <select style={{ ...S.fi, padding: "7px 10px", fontSize: 12, cursor: "pointer" }} value={af.status} onChange={e => setAf({ ...af, status: e.target.value })}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
                 </div>
-                <div style={S.fg}>
-                  <label style={S.lbl}>Emp No</label>
-                  <input style={{ ...S.fiMono, color: T.purple }} value={quickForm.empNo} onChange={e => setQuickForm({ ...quickForm, empNo: e.target.value })} />
+                <div style={{ ...S.fg, marginBottom: 10 }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Serial #</label>
+                  <input style={{ ...S.fiMono, padding: "7px 10px", fontSize: 12 }} value={af.serialNumber} onChange={e => setAf({ ...af, serialNumber: e.target.value })} placeholder="SN-12345" />
                 </div>
-                <div style={S.fg}>
-                  <label style={S.lbl}>Assigned To</label>
-                  <input style={S.fi} value={quickForm.assignedTo} onChange={e => setQuickForm({ ...quickForm, assignedTo: e.target.value })} />
+                <div style={{ ...S.fg, marginBottom: 10 }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Model</label>
+                  <input style={{ ...S.fi, padding: "7px 10px", fontSize: 12 }} value={af.model} onChange={e => setAf({ ...af, model: e.target.value })} placeholder="Dell Latitude 5540" />
                 </div>
-                <div style={S.fg}>
-                  <label style={S.lbl}>Department</label>
-                  <input style={S.fi} value={quickForm.department} onChange={e => setQuickForm({ ...quickForm, department: e.target.value })} />
+                <div style={{ ...S.fg, marginBottom: 10 }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Location</label>
+                  <input style={{ ...S.fi, padding: "7px 10px", fontSize: 12 }} value={af.location} onChange={e => setAf({ ...af, location: e.target.value })} placeholder="Floor 3" />
+                </div>
+                <div style={{ ...S.fg, marginBottom: 10 }}>
+                  <label style={{ ...S.lbl, fontSize: 10 }}>Notes</label>
+                  <input style={{ ...S.fi, padding: "7px 10px", fontSize: 12 }} value={af.notes} onChange={e => setAf({ ...af, notes: e.target.value })} placeholder="Optional" />
                 </div>
               </div>
-              <button style={{ ...S.btn("green"), width: "100%", justifyContent: "center", padding: 11 }} onClick={addFromScan}>
-                {I(ICO.check, 15)} Add Asset
+              <button style={{ ...S.btn("green"), width: "100%", justifyContent: "center", padding: 11 }} onClick={saveAssetFromEntry}>
+                {I(ICO.check, 15)} Add Asset {empInfo ? `to ${empInfo.fullName}` : ""}
               </button>
             </div>
-          )}
 
-          {/* Sheet import */}
-          {scanTarget === "sheet" && parsedRows.length > 0 && (
-            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Parsed {parsedRows.length} rows</h3>
-                <button style={S.btn("green")} onClick={importRows}>{I(ICO.up, 14)} Import Valid</button>
+            {/* Added assets list */}
+            {addedAssets.length > 0 && (
+              <div style={{ marginTop: 10, background: T.greenDim, border: `1px solid ${T.green}25`, borderRadius: 8, padding: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 6 }}>✓ ADDED THIS SESSION ({addedAssets.length})</div>
+                {addedAssets.map((a, i) => (
+                  <div key={i} style={{ fontSize: 11, fontFamily: T.mono, padding: "2px 0", display: "flex", justifyContent: "space-between" }}>
+                    <span>{tIcon(a.type)} {a.computerName}</span>
+                    <span style={{ color: T.textDim }}>{a.model || a.type}</span>
+                  </div>
+                ))}
               </div>
-              <div style={{ maxHeight: 180, overflow: "auto" }}>
-                {parsedRows.map((r, i) => {
-                  const dup = !isNameUnique(r.computerName);
-                  return <div key={i} style={{ padding: "6px 10px", borderRadius: 6, marginBottom: 3, fontSize: 11, background: dup ? T.redDim : T.bg, border: `1px solid ${dup ? T.red + "30" : T.border}`, display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ fontFamily: T.mono, fontWeight: 600 }}>{r.computerName || "(empty)"}</span>
-                    <span style={{ color: T.textDim }}>{r.type} · {r.assignedTo || "—"}</span>
-                    {dup && <span style={{ color: T.red, fontWeight: 600 }}>DUP</span>}
-                  </div>;
-                })}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 11, color: T.textDim, textAlign: "center" }}>
+          {mode === "device" ? "Scan device → fill details → scan employee badge → save. All from this page." : "Scan employee badge → then scan & add multiple devices for them."}
         </div>
       </div>
     );
@@ -977,12 +1139,12 @@ function App() {
 
   // ─── REPORTS VIEW ───
   const ReportsView = () => {
-    const [report, setReport] = useState(null); // null = picker, otherwise report type
+    const [report, setReport] = useState(null);
     const [reportTitle, setReportTitle] = useState("");
     const printRef = useRef(null);
 
     const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-    const pS = { // print styles
+    const pS = {
       page: { background: "#fff", color: "#111", fontFamily: "'DM Sans', Arial, sans-serif", padding: 24, borderRadius: 10, border: `1px solid ${T.border}` },
       h1: { fontSize: 20, fontWeight: 700, marginBottom: 2, color: "#111" },
       sub: { fontSize: 11, color: "#666", marginBottom: 16 },
@@ -1007,34 +1169,23 @@ function App() {
         <style>
           * { box-sizing: border-box; margin: 0; }
           body { font-family: 'DM Sans', Arial, sans-serif; padding: 20px; color: #111; }
-          @media print {
-            body { padding: 0; }
-            @page { margin: 15mm; size: landscape; }
-            .no-print { display: none !important; }
-          }
+          @media print { body { padding: 0; } @page { margin: 15mm; size: landscape; } .no-print { display: none !important; } }
         </style></head><body>${content.innerHTML}
         <script>setTimeout(()=>{window.print();},500);<\/script></body></html>`);
       win.document.close();
     };
 
-    // ─── Report generators ───
-    const byDept = {};
-    assets.forEach(a => { const d = a.department || "Unassigned"; if (!byDept[d]) byDept[d] = []; byDept[d].push(a); });
-    const byType = {};
-    assets.forEach(a => { if (!byType[a.type]) byType[a.type] = []; byType[a.type].push(a); });
-    const byStatus = {};
-    assets.forEach(a => { if (!byStatus[a.status]) byStatus[a.status] = []; byStatus[a.status].push(a); });
+    const byDept = {}; assets.forEach(a => { const d = a.department || "Unassigned"; if (!byDept[d]) byDept[d] = []; byDept[d].push(a); });
+    const byType = {}; assets.forEach(a => { if (!byType[a.type]) byType[a.type] = []; byType[a.type].push(a); });
+    const byStatus = {}; assets.forEach(a => { if (!byStatus[a.status]) byStatus[a.status] = []; byStatus[a.status].push(a); });
     const unassigned = assets.filter(a => !a.assignedTo);
     const terminated = assets.filter(a => { if (!a.empNo) return false; const e = findEmployee(a.empNo); return e && (e.status === "Terminated" || e.status === "Inactive"); });
-    const byEmp = {};
-    assets.filter(a => a.assignedTo).forEach(a => { const k = a.assignedTo; if (!byEmp[k]) byEmp[k] = []; byEmp[k].push(a); });
+    const byEmp = {}; assets.filter(a => a.assignedTo).forEach(a => { const k = a.assignedTo; if (!byEmp[k]) byEmp[k] = []; byEmp[k].push(a); });
 
     const AssetRow = ({ a, showDept = true, showAssigned = true }) => (
       <tr>
-        <td style={pS.tdMono}>{a.computerName}</td>
-        <td style={pS.td}>{a.type}</td>
-        <td style={pS.tdMono}>{a.serialNumber || "—"}</td>
-        <td style={pS.td}>{a.model || "—"}</td>
+        <td style={pS.tdMono}>{a.computerName}</td><td style={pS.td}>{a.type}</td>
+        <td style={pS.tdMono}>{a.serialNumber || "—"}</td><td style={pS.td}>{a.model || "—"}</td>
         {showAssigned && <td style={pS.td}>{a.assignedTo || "—"}</td>}
         {showAssigned && <td style={pS.tdMono}>{a.empNo || "—"}</td>}
         {showDept && <td style={pS.td}>{a.department || "—"}</td>}
@@ -1043,219 +1194,39 @@ function App() {
     );
     const AssetTableHead = ({ showDept = true, showAssigned = true }) => (
       <thead><tr>
-        <th style={pS.th}>Computer Name</th><th style={pS.th}>Type</th>
-        <th style={pS.th}>Serial #</th><th style={pS.th}>Model</th>
-        {showAssigned && <th style={pS.th}>Assigned To</th>}
-        {showAssigned && <th style={pS.th}>Emp #</th>}
-        {showDept && <th style={pS.th}>Dept</th>}
-        <th style={pS.th}>Status</th>
+        <th style={pS.th}>Computer Name</th><th style={pS.th}>Type</th><th style={pS.th}>Serial #</th><th style={pS.th}>Model</th>
+        {showAssigned && <th style={pS.th}>Assigned To</th>}{showAssigned && <th style={pS.th}>Emp #</th>}
+        {showDept && <th style={pS.th}>Dept</th>}<th style={pS.th}>Status</th>
       </tr></thead>
     );
-    const Footer = () => (
-      <div style={pS.footer}>
-        <span>Generated {today} {currentUser ? `by ${currentUser}` : ""}</span>
-        <span>by: MJE</span>
-      </div>
-    );
+    const Footer = () => (<div style={pS.footer}><span>Generated {today} {currentUser ? `by ${currentUser}` : ""}</span><span>by: MJE</span></div>);
 
-    // ─── Full Inventory ───
-    const FullInventory = () => { setReportTitle("Full Asset Inventory"); return (
-      <div style={pS.page} ref={printRef}>
-        <h1 style={pS.h1}>📦 Full Asset Inventory</h1>
-        <div style={pS.sub}>{today} · {assets.length} assets</div>
-        <div style={{ marginBottom: 16 }}>
-          {[{ l: "Total", v: assets.length }, { l: "Active", v: assets.filter(a => a.status === "Active").length }, { l: "Maintenance", v: assets.filter(a => a.status === "Maintenance").length }, { l: "Decommissioned", v: assets.filter(a => a.status === "Decommissioned").length }, { l: "Unassigned", v: unassigned.length }].map(s => (
-            <div key={s.l} style={pS.stat}><div style={pS.statNum}>{s.v}</div><div style={pS.statLabel}>{s.l}</div></div>
-          ))}
-        </div>
-        <table style={pS.table}><AssetTableHead /><tbody>{assets.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
-        <Footer />
-      </div>
-    );};
+    const FullInventory = () => { setReportTitle("Full Asset Inventory"); return (<div style={pS.page} ref={printRef}><h1 style={pS.h1}>📦 Full Asset Inventory</h1><div style={pS.sub}>{today} · {assets.length} assets</div><div style={{ marginBottom: 16 }}>{[{ l: "Total", v: assets.length }, { l: "Active", v: assets.filter(a => a.status === "Active").length }, { l: "Maintenance", v: assets.filter(a => a.status === "Maintenance").length }, { l: "Decommissioned", v: assets.filter(a => a.status === "Decommissioned").length }, { l: "Unassigned", v: unassigned.length }].map(s => (<div key={s.l} style={pS.stat}><div style={pS.statNum}>{s.v}</div><div style={pS.statLabel}>{s.l}</div></div>))}</div><table style={pS.table}><AssetTableHead /><tbody>{assets.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table><Footer /></div>);};
 
-    // ─── By Department ───
-    const ByDepartment = () => { setReportTitle("Assets by Department"); return (
-      <div style={pS.page} ref={printRef}>
-        <h1 style={pS.h1}>🏢 Assets by Department</h1>
-        <div style={pS.sub}>{today} · {Object.keys(byDept).length} departments · {assets.length} assets</div>
-        {Object.entries(byDept).sort((a, b) => b[1].length - a[1].length).map(([dept, items]) => (
-          <div key={dept}>
-            <div style={pS.section}>{dept} <span style={{ fontWeight: 400, fontSize: 12, color: "#666" }}>({items.length})</span></div>
-            <table style={pS.table}><AssetTableHead showDept={false} /><tbody>{items.map(a => <AssetRow key={a.id} a={a} showDept={false} />)}</tbody></table>
-          </div>
-        ))}
-        <Footer />
-      </div>
-    );};
+    const ByDepartment = () => { setReportTitle("Assets by Department"); return (<div style={pS.page} ref={printRef}><h1 style={pS.h1}>🏢 Assets by Department</h1><div style={pS.sub}>{today} · {Object.keys(byDept).length} departments</div>{Object.entries(byDept).sort((a, b) => b[1].length - a[1].length).map(([dept, items]) => (<div key={dept}><div style={pS.section}>{dept} <span style={{ fontWeight: 400, fontSize: 12, color: "#666" }}>({items.length})</span></div><table style={pS.table}><AssetTableHead showDept={false} /><tbody>{items.map(a => <AssetRow key={a.id} a={a} showDept={false} />)}</tbody></table></div>))}<Footer /></div>);};
 
-    // ─── By Type ───
-    const ByTypeReport = () => { setReportTitle("Assets by Type"); return (
-      <div style={pS.page} ref={printRef}>
-        <h1 style={pS.h1}>🖥️ Assets by Type</h1>
-        <div style={pS.sub}>{today}</div>
-        <div style={{ marginBottom: 16 }}>
-          {Object.entries(byType).map(([t, items]) => (
-            <div key={t} style={pS.stat}><div style={pS.statNum}>{items.length}</div><div style={pS.statLabel}>{t}</div></div>
-          ))}
-        </div>
-        {Object.entries(byType).map(([type, items]) => (
-          <div key={type}>
-            <div style={pS.section}>{type} <span style={{ fontWeight: 400, fontSize: 12, color: "#666" }}>({items.length})</span></div>
-            <table style={pS.table}><AssetTableHead /><tbody>{items.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
-          </div>
-        ))}
-        <Footer />
-      </div>
-    );};
+    const ByTypeReport = () => { setReportTitle("Assets by Type"); return (<div style={pS.page} ref={printRef}><h1 style={pS.h1}>🖥️ Assets by Type</h1><div style={pS.sub}>{today}</div><div style={{ marginBottom: 16 }}>{Object.entries(byType).map(([t, items]) => (<div key={t} style={pS.stat}><div style={pS.statNum}>{items.length}</div><div style={pS.statLabel}>{t}</div></div>))}</div>{Object.entries(byType).map(([type, items]) => (<div key={type}><div style={pS.section}>{type} ({items.length})</div><table style={pS.table}><AssetTableHead /><tbody>{items.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table></div>))}<Footer /></div>);};
 
-    // ─── Employee Assignments ───
-    const EmpAssignments = () => { setReportTitle("Employee Device Assignments"); return (
-      <div style={pS.page} ref={printRef}>
-        <h1 style={pS.h1}>👤 Employee Device Assignments</h1>
-        <div style={pS.sub}>{today} · {Object.keys(byEmp).length} employees with devices · {unassigned.length} unassigned</div>
-        {Object.entries(byEmp).sort((a, b) => a[0].localeCompare(b[0])).map(([name, items]) => {
-          const emp = items[0]?.empNo ? findEmployee(items[0].empNo) : null;
-          return (
-            <div key={name}>
-              <div style={pS.section}>
-                {name} {emp && <span style={{ fontWeight: 400, fontSize: 11, color: "#666" }}>· {emp.empNo} · {emp.department || "—"} · {emp.position || "—"}</span>}
-                {emp && emp.status !== "Active" && <span style={{ ...pS.badge(false), marginLeft: 8 }}>{emp.status}</span>}
-              </div>
-              <table style={pS.table}>
-                <thead><tr><th style={pS.th}>Computer Name</th><th style={pS.th}>Type</th><th style={pS.th}>Serial #</th><th style={pS.th}>Model</th><th style={pS.th}>Status</th></tr></thead>
-                <tbody>{items.map(a => (
-                  <tr key={a.id}>
-                    <td style={pS.tdMono}>{a.computerName}</td><td style={pS.td}>{a.type}</td>
-                    <td style={pS.tdMono}>{a.serialNumber || "—"}</td><td style={pS.td}>{a.model || "—"}</td>
-                    <td style={pS.td}><span style={pS.badge(a.status === "Active")}>{a.status}</span></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          );
-        })}
-        {unassigned.length > 0 && <>
-          <div style={{ ...pS.section, color: "#c62828" }}>⚠ Unassigned Devices ({unassigned.length})</div>
-          <table style={pS.table}><AssetTableHead showAssigned={false} /><tbody>{unassigned.map(a => <AssetRow key={a.id} a={a} showAssigned={false} />)}</tbody></table>
-        </>}
-        <Footer />
-      </div>
-    );};
+    const EmpAssignments = () => { setReportTitle("Employee Device Assignments"); return (<div style={pS.page} ref={printRef}><h1 style={pS.h1}>👤 Employee Assignments</h1><div style={pS.sub}>{today} · {Object.keys(byEmp).length} employees with devices</div>{Object.entries(byEmp).sort((a, b) => a[0].localeCompare(b[0])).map(([name, items]) => { const emp = items[0]?.empNo ? findEmployee(items[0].empNo) : null; return (<div key={name}><div style={pS.section}>{name} {emp && <span style={{ fontWeight: 400, fontSize: 11, color: "#666" }}>· {emp.empNo} · {emp.department || "—"}</span>}{emp && emp.status !== "Active" && <span style={{ ...pS.badge(false), marginLeft: 8 }}>{emp.status}</span>}</div><table style={pS.table}><thead><tr><th style={pS.th}>Computer Name</th><th style={pS.th}>Type</th><th style={pS.th}>Serial #</th><th style={pS.th}>Model</th><th style={pS.th}>Status</th></tr></thead><tbody>{items.map(a => (<tr key={a.id}><td style={pS.tdMono}>{a.computerName}</td><td style={pS.td}>{a.type}</td><td style={pS.tdMono}>{a.serialNumber || "—"}</td><td style={pS.td}>{a.model || "—"}</td><td style={pS.td}><span style={pS.badge(a.status === "Active")}>{a.status}</span></td></tr>))}</tbody></table></div>);})}{unassigned.length > 0 && <><div style={{ ...pS.section, color: "#c62828" }}>⚠ Unassigned ({unassigned.length})</div><table style={pS.table}><AssetTableHead showAssigned={false} /><tbody>{unassigned.map(a => <AssetRow key={a.id} a={a} showAssigned={false} />)}</tbody></table></>}<Footer /></div>);};
 
-    // ─── Problem Devices ───
-    const ProblemReport = () => { setReportTitle("Problem Devices Report"); return (
-      <div style={pS.page} ref={printRef}>
-        <h1 style={pS.h1}>⚠️ Problem Devices Report</h1>
-        <div style={pS.sub}>{today}</div>
-        <div style={{ marginBottom: 16 }}>
-          {[{ l: "Maintenance", v: (byStatus["Maintenance"] || []).length, c: "#e65100" }, { l: "Decommissioned", v: (byStatus["Decommissioned"] || []).length, c: "#c62828" }, { l: "Unassigned", v: unassigned.length, c: "#6a1b9a" }, { l: "Assigned to Ex-Employees", v: terminated.length, c: "#c62828" }].map(s => (
-            <div key={s.l} style={{ ...pS.stat, borderLeft: `3px solid ${s.c}` }}><div style={{ ...pS.statNum, color: s.c }}>{s.v}</div><div style={pS.statLabel}>{s.l}</div></div>
-          ))}
-        </div>
+    const ProblemReport = () => { setReportTitle("Problem Devices"); return (<div style={pS.page} ref={printRef}><h1 style={pS.h1}>⚠️ Problem Devices</h1><div style={pS.sub}>{today}</div><div style={{ marginBottom: 16 }}>{[{ l: "Maintenance", v: (byStatus["Maintenance"] || []).length, c: "#e65100" }, { l: "Decommissioned", v: (byStatus["Decommissioned"] || []).length, c: "#c62828" }, { l: "Unassigned", v: unassigned.length, c: "#6a1b9a" }, { l: "Ex-Employee", v: terminated.length, c: "#c62828" }].map(s => (<div key={s.l} style={{ ...pS.stat, borderLeft: `3px solid ${s.c}` }}><div style={{ ...pS.statNum, color: s.c }}>{s.v}</div><div style={pS.statLabel}>{s.l}</div></div>))}</div>{(byStatus["Maintenance"] || []).length > 0 && <><div style={pS.section}>🔧 Maintenance ({(byStatus["Maintenance"] || []).length})</div><table style={pS.table}><AssetTableHead /><tbody>{(byStatus["Maintenance"] || []).map(a => <AssetRow key={a.id} a={a} />)}</tbody></table></>}{terminated.length > 0 && <><div style={{ ...pS.section, color: "#c62828" }}>🚫 Terminated Employees ({terminated.length})</div><table style={pS.table}><AssetTableHead /><tbody>{terminated.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table></>}{unassigned.length > 0 && <><div style={pS.section}>📦 Unassigned ({unassigned.length})</div><table style={pS.table}><AssetTableHead showAssigned={false} /><tbody>{unassigned.map(a => <AssetRow key={a.id} a={a} showAssigned={false} />)}</tbody></table></>}<Footer /></div>);};
 
-        {(byStatus["Maintenance"] || []).length > 0 && <>
-          <div style={pS.section}>🔧 In Maintenance ({(byStatus["Maintenance"] || []).length})</div>
-          <table style={pS.table}><AssetTableHead /><tbody>{(byStatus["Maintenance"] || []).map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
-        </>}
-
-        {terminated.length > 0 && <>
-          <div style={{ ...pS.section, color: "#c62828" }}>🚫 Assigned to Terminated/Inactive Employees ({terminated.length})</div>
-          <table style={pS.table}><AssetTableHead /><tbody>{terminated.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
-        </>}
-
-        {unassigned.length > 0 && <>
-          <div style={pS.section}>📦 Unassigned Devices ({unassigned.length})</div>
-          <table style={pS.table}><AssetTableHead showAssigned={false} /><tbody>{unassigned.map(a => <AssetRow key={a.id} a={a} showAssigned={false} />)}</tbody></table>
-        </>}
-
-        {(byStatus["Decommissioned"] || []).length > 0 && <>
-          <div style={pS.section}>🗑️ Decommissioned ({(byStatus["Decommissioned"] || []).length})</div>
-          <table style={pS.table}><AssetTableHead /><tbody>{(byStatus["Decommissioned"] || []).map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
-        </>}
-        <Footer />
-      </div>
-    );};
-
-    // ─── Employee Directory ───
-    const EmpDirectory = () => { setReportTitle("Employee Directory"); return (
-      <div style={pS.page} ref={printRef}>
-        <h1 style={pS.h1}>👥 Employee Directory</h1>
-        <div style={pS.sub}>{today} · {employees.length} employees</div>
-        <div style={{ marginBottom: 16 }}>
-          {[{ l: "Total", v: employees.length }, { l: "Active", v: employees.filter(e => e.status === "Active").length }, { l: "On Leave", v: employees.filter(e => e.status === "On Leave").length }, { l: "Departments", v: [...new Set(employees.map(e => e.department).filter(Boolean))].length }].map(s => (
-            <div key={s.l} style={pS.stat}><div style={pS.statNum}>{s.v}</div><div style={pS.statLabel}>{s.l}</div></div>
-          ))}
-        </div>
-        <table style={pS.table}>
-          <thead><tr>
-            <th style={pS.th}>Emp No</th><th style={pS.th}>Name</th><th style={pS.th}>Department</th>
-            <th style={pS.th}>Position</th><th style={pS.th}>Email</th><th style={pS.th}>Phone</th>
-            <th style={pS.th}>Location</th><th style={pS.th}>Status</th><th style={pS.th}>Devices</th>
-          </tr></thead>
-          <tbody>
-            {employees.sort((a, b) => (a.fullName || "").localeCompare(b.fullName || "")).map(e => {
-              const devCount = assets.filter(a => a.empNo && a.empNo.toUpperCase() === e.empNo.toUpperCase()).length;
-              return (
-                <tr key={e.id}>
-                  <td style={pS.tdMono}>{e.empNo}</td><td style={{ ...pS.td, fontWeight: 500 }}>{e.fullName}</td>
-                  <td style={pS.td}>{e.department || "—"}</td><td style={pS.td}>{e.position || "—"}</td>
-                  <td style={{ ...pS.td, fontSize: 10 }}>{e.email || "—"}</td><td style={pS.td}>{e.phone || "—"}</td>
-                  <td style={pS.td}>{e.location || "—"}</td>
-                  <td style={pS.td}><span style={pS.badge(e.status === "Active")}>{e.status}</span></td>
-                  <td style={{ ...pS.td, textAlign: "center", fontWeight: devCount > 0 ? 700 : 400 }}>{devCount || "—"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <Footer />
-      </div>
-    );};
+    const EmpDirectory = () => { setReportTitle("Employee Directory"); return (<div style={pS.page} ref={printRef}><h1 style={pS.h1}>👥 Employee Directory</h1><div style={pS.sub}>{today} · {employees.length} employees</div><table style={pS.table}><thead><tr><th style={pS.th}>Emp No</th><th style={pS.th}>Name</th><th style={pS.th}>Department</th><th style={pS.th}>Position</th><th style={pS.th}>Email</th><th style={pS.th}>Phone</th><th style={pS.th}>Location</th><th style={pS.th}>Status</th><th style={pS.th}>Devices</th></tr></thead><tbody>{employees.sort((a, b) => (a.fullName || "").localeCompare(b.fullName || "")).map(e => { const devCount = assets.filter(a => a.empNo && a.empNo.toUpperCase() === e.empNo.toUpperCase()).length; return (<tr key={e.id}><td style={pS.tdMono}>{e.empNo}</td><td style={{ ...pS.td, fontWeight: 500 }}>{e.fullName}</td><td style={pS.td}>{e.department || "—"}</td><td style={pS.td}>{e.position || "—"}</td><td style={{ ...pS.td, fontSize: 10 }}>{e.email || "—"}</td><td style={pS.td}>{e.phone || "—"}</td><td style={pS.td}>{e.location || "—"}</td><td style={pS.td}><span style={pS.badge(e.status === "Active")}>{e.status}</span></td><td style={{ ...pS.td, textAlign: "center", fontWeight: devCount > 0 ? 700 : 400 }}>{devCount || "—"}</td></tr>);})}</tbody></table><Footer /></div>);};
 
     const reports = [
-      { id: "full", icon: "📦", title: "Full Inventory", desc: "Complete list of all assets with details", count: assets.length, comp: FullInventory },
-      { id: "dept", icon: "🏢", title: "By Department", desc: "Assets grouped by department", count: Object.keys(byDept).length + " depts", comp: ByDepartment },
-      { id: "type", icon: "🖥️", title: "By Type", desc: "Assets grouped by device type", count: Object.keys(byType).length + " types", comp: ByTypeReport },
-      { id: "emp", icon: "👤", title: "Employee Assignments", desc: "Who has what devices", count: Object.keys(byEmp).length + " people", comp: EmpAssignments },
-      { id: "prob", icon: "⚠️", title: "Problem Devices", desc: "Maintenance, unassigned, ex-employee devices", count: (byStatus["Maintenance"]||[]).length + unassigned.length + terminated.length, comp: ProblemReport },
-      { id: "dir", icon: "👥", title: "Employee Directory", desc: "Full staff list with device counts", count: employees.length, comp: EmpDirectory },
+      { id: "full", icon: "📦", title: "Full Inventory", desc: "Complete asset list", count: assets.length, comp: FullInventory },
+      { id: "dept", icon: "🏢", title: "By Department", desc: "Assets by department", count: Object.keys(byDept).length + " depts", comp: ByDepartment },
+      { id: "type", icon: "🖥️", title: "By Type", desc: "Assets by device type", count: Object.keys(byType).length + " types", comp: ByTypeReport },
+      { id: "emp", icon: "👤", title: "Assignments", desc: "Who has what devices", count: Object.keys(byEmp).length + " people", comp: EmpAssignments },
+      { id: "prob", icon: "⚠️", title: "Problems", desc: "Maintenance, unassigned, ex-employees", count: (byStatus["Maintenance"]||[]).length + unassigned.length + terminated.length, comp: ProblemReport },
+      { id: "dir", icon: "👥", title: "Directory", desc: "Full staff list", count: employees.length, comp: EmpDirectory },
     ];
 
-    if (!report) return (
-      <div style={{ maxWidth: 720, margin: "0 auto" }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>📊 Reports</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {reports.map(r => (
-            <button key={r.id} onClick={() => setReport(r.id)} style={{ ...S.card, cursor: "pointer", textAlign: "left", transition: "all .15s", border: `1px solid ${T.border}`, display: "flex", gap: 12, alignItems: "flex-start" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.cardHover; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; }}>
-              <div style={{ fontSize: 28, lineHeight: 1 }}>{r.icon}</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>{r.title}</div>
-                <div style={{ fontSize: 11, color: T.textDim }}>{r.desc}</div>
-                <div style={{ fontSize: 11, color: T.accent, fontWeight: 600, marginTop: 5 }}>{r.count} items</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
+    if (!report) return (<div style={{ maxWidth: 720, margin: "0 auto" }}><h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>📊 Reports</h2><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>{reports.map(r => (<button key={r.id} onClick={() => setReport(r.id)} style={{ ...S.card, cursor: "pointer", textAlign: "left", transition: "all .15s", border: `1px solid ${T.border}`, display: "flex", gap: 12, alignItems: "flex-start" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.cardHover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; }}><div style={{ fontSize: 28, lineHeight: 1 }}>{r.icon}</div><div><div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>{r.title}</div><div style={{ fontSize: 11, color: T.textDim }}>{r.desc}</div><div style={{ fontSize: 11, color: T.accent, fontWeight: 600, marginTop: 5 }}>{r.count} items</div></div></button>))}</div></div>);
 
     const activeReport = reports.find(r => r.id === report);
     const ReportComp = activeReport?.comp;
-
-    return (
-      <div style={{ maxWidth: 960, margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button style={S.btn("ghost")} onClick={() => setReport(null)}>← Back</button>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{activeReport?.icon} {activeReport?.title}</h2>
-          </div>
-          <button style={S.btn("pri")} onClick={doPrint}>{I(ICO.up, 15)} Print / Save PDF</button>
-        </div>
-        {ReportComp && <ReportComp />}
-      </div>
-    );
+    return (<div style={{ maxWidth: 960, margin: "0 auto" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><button style={S.btn("ghost")} onClick={() => setReport(null)}>← Back</button><h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{activeReport?.icon} {activeReport?.title}</h2></div><button style={S.btn("pri")} onClick={doPrint}>{I(ICO.up, 15)} Print / PDF</button></div>{ReportComp && <ReportComp />}</div>);
   };
 
   // ─── AUDIT LOG VIEW ───
@@ -1263,75 +1234,77 @@ function App() {
     useEffect(() => { if (settings.url && !auditLog.length) fetchAuditLog(); }, []);
     const actionColor = (a) => ({ ADD: T.green, EDIT: T.accent, DELETE: T.red, PUSH: T.orange, PULL: T.purple }[a] || T.textMid);
     const actionIcon = (a) => ({ ADD: "➕", EDIT: "✏️", DELETE: "🗑️", PUSH: "⬆️", PULL: "⬇️" }[a] || "📝");
-    return (
-      <div style={{ maxWidth: 900, margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📝 Audit Log</h2>
-          <button style={S.btn("pri")} onClick={fetchAuditLog} disabled={syncing}>{I(ICO.sync, 15)} {syncing ? "Loading..." : "Refresh"}</button>
-        </div>
-        {currentUser && (
-          <div style={{ fontSize: 12, color: T.textMid, marginBottom: 12 }}>
-            Logged in as <strong style={{ color: T.accent }}>{currentUser}</strong>
-          </div>
-        )}
-        {!settings.url ? (
-          <div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>🔗</div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>Connect to Google Sheets first</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>Set your Apps Script URL in Settings to enable audit logging</div>
-          </div>
-        ) : auditLog.length === 0 ? (
-          <div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>No audit entries yet</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>Actions will be logged when users add, edit, or delete assets via the app</div>
-          </div>
-        ) : (
-          <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead><tr>
-                {["Time", "User", "Action", "Sheet", "Target", "Details"].map(h => <th key={h} style={S.th}>{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {auditLog.map((entry, i) => (
-                  <tr key={i} style={{ transition: "background .12s" }}
-                    onMouseEnter={e => e.currentTarget.style.background = T.cardHover}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    <td style={{ ...S.td, fontSize: 11, fontFamily: T.mono, color: T.textDim, whiteSpace: "nowrap" }}>
-                      {entry.Timestamp}
-                    </td>
-                    <td style={{ ...S.td, fontSize: 12 }}>
-                      <span title={entry.User} style={{ color: T.accent }}>{(entry.User || "").split("@")[0] || "—"}</span>
-                    </td>
-                    <td style={S.td}>
-                      <span style={{ ...S.badge(actionColor(entry.Action)), display: "inline-flex", alignItems: "center", gap: 3 }}>
-                        {actionIcon(entry.Action)} {entry.Action}
-                      </span>
-                    </td>
-                    <td style={{ ...S.td, fontSize: 12, color: T.textMid }}>{entry.Sheet}</td>
-                    <td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, fontWeight: 600 }}>{entry.Target || "—"}</td>
-                    <td style={{ ...S.td, fontSize: 11, color: T.textDim, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={entry.Details}>
-                      {entry.Details || "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div style={{ marginTop: 8, fontSize: 11, color: T.textDim }}>
-          Showing {auditLog.length} most recent entries · Full log available in the "Audit Log" sheet in Google Sheets
-        </div>
-      </div>
-    );
+    return (<div style={{ maxWidth: 900, margin: "0 auto" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}><h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📝 Audit Log</h2><button style={S.btn("pri")} onClick={fetchAuditLog} disabled={syncing}>{I(ICO.sync, 15)} {syncing ? "Loading..." : "Refresh"}</button></div>{currentUser && (<div style={{ fontSize: 12, color: T.textMid, marginBottom: 12 }}>Logged in as <strong style={{ color: T.accent }}>{currentUser}</strong></div>)}{!settings.url ? (<div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}><div style={{ fontSize: 36, marginBottom: 8 }}>🔗</div><div style={{ fontSize: 14, fontWeight: 600 }}>Connect to Google Sheets first</div></div>) : auditLog.length === 0 ? (<div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}><div style={{ fontSize: 36, marginBottom: 8 }}>📋</div><div style={{ fontSize: 14, fontWeight: 600 }}>No audit entries yet</div></div>) : (<div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr>{["Time", "User", "Action", "Sheet", "Target", "Details"].map(h => <th key={h} style={S.th}>{h}</th>)}</tr></thead><tbody>{auditLog.map((entry, i) => (<tr key={i} style={{ transition: "background .12s" }} onMouseEnter={e => e.currentTarget.style.background = T.cardHover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><td style={{ ...S.td, fontSize: 11, fontFamily: T.mono, color: T.textDim, whiteSpace: "nowrap" }}>{entry.Timestamp}</td><td style={{ ...S.td, fontSize: 12 }}><span title={entry.User} style={{ color: T.accent }}>{(entry.User || "").split("@")[0] || "—"}</span></td><td style={S.td}><span style={{ ...S.badge(actionColor(entry.Action)), display: "inline-flex", alignItems: "center", gap: 3 }}>{actionIcon(entry.Action)} {entry.Action}</span></td><td style={{ ...S.td, fontSize: 12, color: T.textMid }}>{entry.Sheet}</td><td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, fontWeight: 600 }}>{entry.Target || "—"}</td><td style={{ ...S.td, fontSize: 11, color: T.textDim, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={entry.Details}>{entry.Details || "—"}</td></tr>))}</tbody></table></div>)}<div style={{ marginTop: 8, fontSize: 11, color: T.textDim }}>Showing {auditLog.length} most recent entries</div></div>);
   };
 
-  // ─── SETTINGS VIEW ───
+  // ─── SETTINGS VIEW (with password gate) ───
   const SettingsView = () => {
+    const [pw, setPw] = useState("");
+    const [pwError, setPwError] = useState(false);
     const [u, setU] = useState(settings.url);
     const isPreconfigured = !!PRECONFIGURED_URL;
+    const [eraseConfirm, setEraseConfirm] = useState({ show: false, target: "", typed: "" });
+
+    const checkPw = () => {
+      if (pw === SETTINGS_PASSWORD) { setSettingsUnlocked(true); setPwError(false); }
+      else { setPwError(true); }
+    };
+
+    // Password gate
+    if (SETTINGS_PASSWORD && !settingsUnlocked) {
+      return (
+        <div style={{ maxWidth: 380, margin: "60px auto", textAlign: "center" }}>
+          <div style={{ width: 56, height: 56, background: T.purpleDim, border: `1px solid ${T.purple}30`, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+            {I(ICO.lock, 26)}
+          </div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Settings Locked</h2>
+          <p style={{ fontSize: 12, color: T.textDim, marginBottom: 20 }}>Enter the admin password to access settings.</p>
+          <form onSubmit={e => { e.preventDefault(); checkPw(); }} style={S.card}>
+            <div style={S.fg}>
+              <label style={S.lbl}>Password</label>
+              <input style={{ ...S.fi, textAlign: "center", letterSpacing: 3, borderColor: pwError ? T.red : T.border }} type="password" value={pw} onChange={e => { setPw(e.target.value); setPwError(false); }} placeholder="••••••" autoFocus />
+              {pwError && <div style={{ color: T.red, fontSize: 11, marginTop: 4 }}>Incorrect password</div>}
+            </div>
+            <button type="submit" style={{ ...S.btn("pri"), width: "100%", justifyContent: "center", padding: "10px 20px" }}>{I(ICO.lock, 14)} Unlock</button>
+          </form>
+          <div style={{ fontSize: 10, color: T.textDim, marginTop: 12 }}>Password is set in SETTINGS_PASSWORD in the code file</div>
+        </div>
+      );
+    }
+
+    // Erase confirmation modal
+    const EraseModal = () => {
+      if (!eraseConfirm.show) return null;
+      const label = eraseConfirm.target === "assets" ? "Assets" : "Employees";
+      return (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setEraseConfirm({ show: false, target: "", typed: "" })}>
+          <div style={{ ...S.card, maxWidth: 400, width: "90%", textAlign: "center" }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: T.red, marginBottom: 8 }}>Erase All {label}?</h3>
+            <p style={{ fontSize: 12, color: T.textMid, marginBottom: 16 }}>This will permanently delete all {eraseConfirm.target === "assets" ? assets.length : employees.length} {label.toLowerCase()} from local storage. This cannot be undone.</p>
+            <div style={S.fg}>
+              <label style={S.lbl}>Type <strong style={{ color: T.red }}>DELETE</strong> to confirm</label>
+              <input style={{ ...S.fi, textAlign: "center", fontFamily: T.mono, letterSpacing: 2, borderColor: T.red }} value={eraseConfirm.typed}
+                onChange={e => setEraseConfirm({ ...eraseConfirm, typed: e.target.value })} autoFocus placeholder="DELETE" />
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              <button style={S.btn("out")} onClick={() => setEraseConfirm({ show: false, target: "", typed: "" })}>Cancel</button>
+              <button style={{ ...S.btn("red"), opacity: eraseConfirm.typed === "DELETE" ? 1 : 0.4, pointerEvents: eraseConfirm.typed === "DELETE" ? "auto" : "none" }}
+                onClick={() => {
+                  if (eraseConfirm.typed !== "DELETE") return;
+                  if (eraseConfirm.target === "assets") { saveAssets([]); notify("All assets erased"); }
+                  else { saveEmployees([]); notify("All employees erased"); }
+                  setEraseConfirm({ show: false, target: "", typed: "" });
+                }}>{I(ICO.trash, 14)} Erase All {label}</button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <EraseModal />
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>⚙️ Settings</h2>
 
         {isPreconfigured && (
@@ -1339,7 +1312,7 @@ function App() {
             <span style={{ fontSize: 18 }}>✅</span>
             <div>
               <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>Pre-configured & Ready</div>
-              <div style={{ fontSize: 11, color: T.textMid }}>Google Sheets URL is already set. No setup needed — just start adding assets.</div>
+              <div style={{ fontSize: 11, color: T.textMid }}>Google Sheets URL is set. No setup needed.</div>
             </div>
           </div>
         )}
@@ -1348,15 +1321,10 @@ function App() {
           <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Google Sheets Connection</h3>
           <div style={S.fg}>
             <label style={S.lbl}>Apps Script Web App URL {isPreconfigured && <span style={{ color: T.green, textTransform: "none", fontWeight: 400 }}>(pre-configured)</span>}</label>
-            <input style={{ ...S.fi, ...(isPreconfigured && { opacity: 0.7 }) }} value={u} onChange={e => setU(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"
-              readOnly={isPreconfigured} />
-            {isPreconfigured && <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>This URL was set by the admin in the app file. To change it, edit the PRECONFIGURED_URL at the top of the file.</div>}
+            <input style={{ ...S.fi, ...(isPreconfigured && { opacity: 0.7 }) }} value={u} onChange={e => setU(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec" readOnly={isPreconfigured} />
           </div>
           {!isPreconfigured && <button style={S.btn("pri")} onClick={() => { saveSettings({ ...settings, url: u.trim() }); notify("Settings saved"); }}>{I(ICO.check, 15)} Save URL</button>}
-          {settings.url && <button style={{ ...S.btn("out"), marginLeft: 8 }} onClick={async () => {
-            const r = await apiCall("GET", { action: "ping" });
-            if (r?.success) notify("✓ Connected to Google Sheets!"); else notify("Connection failed", "error");
-          }}>{I(ICO.zap, 14)} Test Connection</button>}
+          {settings.url && <button style={{ ...S.btn("out"), marginLeft: 8 }} onClick={async () => { const r = await apiCall("GET", { action: "ping" }); if (r?.success) notify("✓ Connected!"); else notify("Connection failed", "error"); }}>{I(ICO.zap, 14)} Test</button>}
         </div>
 
         <div style={{ ...S.card, marginBottom: 16 }}>
@@ -1364,7 +1332,7 @@ function App() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <button style={S.btn("pri")} onClick={pushAssets} disabled={syncing}>{I(ICO.up, 15)} Push Assets</button>
             <button style={S.btn("out")} onClick={pullAssets} disabled={syncing}>{I(ICO.down, 15)} Pull Assets</button>
-            <button style={{ ...S.btn("green") }} onClick={pushEmployees} disabled={syncing}>{I(ICO.up, 15)} Push Employees</button>
+            <button style={S.btn("green")} onClick={pushEmployees} disabled={syncing}>{I(ICO.up, 15)} Push Employees</button>
             <button style={S.btn("out")} onClick={pullEmployees} disabled={syncing}>{I(ICO.down, 15)} Pull Employees</button>
           </div>
           {syncing && <div style={{ fontSize: 12, color: T.orange, marginTop: 8 }}>Syncing...</div>}
@@ -1374,24 +1342,21 @@ function App() {
           <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Data Management</h3>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button style={S.btn("out")} onClick={exportCSV}>{I(ICO.down, 15)} Export CSV</button>
-            <button style={S.btn("red")} onClick={() => { if (confirm("Delete ALL local assets?")) { saveAssets([]); notify("Assets cleared"); } }}>{I(ICO.trash, 14)} Clear Assets</button>
-            <button style={S.btn("red")} onClick={() => { if (confirm("Delete ALL local employees?")) { saveEmployees([]); notify("Employees cleared"); } }}>{I(ICO.trash, 14)} Clear Employees</button>
+            <button style={S.btn("red")} onClick={() => setEraseConfirm({ show: true, target: "assets", typed: "" })}>{I(ICO.trash, 14)} Clear Assets ({assets.length})</button>
+            <button style={S.btn("red")} onClick={() => setEraseConfirm({ show: true, target: "employees", typed: "" })}>{I(ICO.trash, 14)} Clear Employees ({employees.length})</button>
           </div>
         </div>
 
         <div style={{ ...S.card, background: T.accentDim, border: `1px solid ${T.accent}25` }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: T.accent, marginBottom: 10 }}>📋 Setup Guide (for any machine)</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: T.accent, marginBottom: 10 }}>📋 Setup Guide</h3>
           <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: T.text, lineHeight: 2.1 }}>
-            <li>Create a <strong>new Google Sheet</strong> (or use existing)</li>
+            <li>Create a <strong>new Google Sheet</strong></li>
             <li>Go to <strong>Extensions → Apps Script</strong></li>
-            <li>Delete default code, paste the <strong>google-apps-script.gs</strong> file</li>
-            <li>In the function dropdown select <strong>initializeAll</strong></li>
-            <li>Click <strong>▶ Run</strong> → Authorize when prompted</li>
-            <li>This creates <strong>Assets + Employees + Dashboard</strong> sheets with all formatting</li>
+            <li>Delete default code, paste the <strong>google-apps-script.gs</strong></li>
+            <li>Select <strong>initializeAll</strong> → Click <strong>▶ Run</strong></li>
             <li>Click <strong>Deploy → New Deployment → Web app</strong></li>
-            <li>Set "Who has access" to <strong>"Anyone"</strong></li>
-            <li>Copy the URL → paste it above → Save</li>
-            <li><strong>Share the Sheet</strong> with coworkers (Editor access) + give them this app URL</li>
+            <li>Set access to <strong>"Anyone"</strong></li>
+            <li>Copy URL → paste above → Save</li>
           </ol>
         </div>
       </div>
@@ -1411,10 +1376,7 @@ function App() {
     };
     return (
       <div style={{ ...S.wrap, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-        <style>{`
-          * { box-sizing: border-box; margin: 0; }
-          input::placeholder { color: ${T.textDim}; }
-        `}</style>
+        <style>{`* { box-sizing: border-box; margin: 0; } input::placeholder { color: ${T.textDim}; }`}</style>
         <div style={{ width: "100%", maxWidth: 380, padding: 20 }}>
           <div style={{ textAlign: "center", marginBottom: 28 }}>
             <div style={{ width: 56, height: 56, background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
@@ -1446,8 +1408,6 @@ function App() {
   // ═══════════════════════════════════════════
   //  RENDER
   // ═══════════════════════════════════════════
-
-  // Show login screen if no user profile
   if (!userProfile) return <LoginScreen />;
 
   return (
@@ -1463,7 +1423,7 @@ function App() {
         @media (max-width: 640px) { table { font-size: 11px; } th, td { padding: 7px 5px !important; } }
       `}</style>
 
-      {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} key={toast.k} />}
+      {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} key={toast.k} action={toast.action} />}
 
       <header style={S.hdr}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1474,7 +1434,7 @@ function App() {
             <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-.01em" }}>Asset Tracker</div>
             <div style={{ fontSize: 9, color: T.textDim, textTransform: "uppercase", letterSpacing: ".06em", display: "flex", alignItems: "center", gap: 4 }}>
               {currentUser ? <span style={{ textTransform: "none", color: T.textMid, cursor: "pointer" }} title="Click to sign out" onClick={logoutUser}>{currentUser.split("@")[0]} ✕</span> : "Hardware · Employees"}
-              {settings.url && <span title={`Connected${currentUser ? " as " + currentUser : ""}`} style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: T.green, marginLeft: 4 }} />}
+              {settings.url && <span title="Connected" style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: T.green, marginLeft: 4 }} />}
             </div>
           </div>
         </div>
@@ -1482,10 +1442,10 @@ function App() {
           {[
             { v: "assets", icon: ICO.pc, label: "Assets" },
             { v: "employees", icon: ICO.user, label: "People" },
-            { v: "scan", icon: ICO.cam, label: "Scan" },
+            { v: "quickEntry", icon: ICO.scan, label: "Quick Entry" },
             { v: "reports", icon: ICO.list, label: "Reports" },
             { v: "audit", icon: ICO.alert, label: "Audit" },
-            { v: "settings", icon: ICO.gear, label: "Settings" },
+            { v: "settings", icon: SETTINGS_PASSWORD && !settingsUnlocked ? ICO.lock : ICO.gear, label: "Settings" },
           ].map(({ v, icon, label }) => (
             <button key={v} style={S.navBtn(view === v || (v === "assets" && view === "form") || (v === "employees" && view === "empForm"))} onClick={() => setView(v)}>
               {I(icon, 15)} <span>{label}</span>
@@ -1499,7 +1459,7 @@ function App() {
         {view === "form" && <AssetForm />}
         {view === "employees" && <EmployeesView />}
         {view === "empForm" && <EmpForm />}
-        {view === "scan" && <ScanView />}
+        {view === "quickEntry" && <QuickEntryView />}
         {view === "reports" && <ReportsView />}
         {view === "audit" && <AuditLogView />}
         {view === "settings" && <SettingsView />}
