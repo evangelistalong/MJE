@@ -42,7 +42,7 @@ if (!window.storage) {
 const ASSET_TYPES = ["PC", "MAC", "Laptop", "Server", "Monitor", "Printer", "Other"];
 const STATUSES = ["Active", "Inactive", "Maintenance", "Decommissioned"];
 const EMP_STATUSES = ["Active", "Inactive", "On Leave", "Terminated"];
-const STORE = { assets: "hwa-assets-v3", employees: "hwa-employees-v3", settings: "hwa-settings-v3", user: "hwa-user-v3" };
+const STORE = { assets: "hwa-assets-v3", employees: "hwa-employees-v3", settings: "hwa-settings-v3", user: "hwa-user-v3", textSize: "hwa-textsize" };
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const now = () => new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -117,7 +117,8 @@ function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
   const [settingsUnlocked, setSettingsUnlocked] = useState(!SETTINGS_PASSWORD);
-  const [undoStack, setUndoStack] = useState([]); // { type: "asset"|"employee", data, action: "delete"|"edit" }
+  const [undoStack, setUndoStack] = useState([]);
+  const [textSize, setTextSize] = useState("md"); // sm, md, lg, xl // { type: "asset"|"employee", data, action: "delete"|"edit" }
 
   const notify = (msg, type = "ok", action = null) => setToast({ msg, type, k: Date.now(), action });
 
@@ -168,7 +169,13 @@ function App() {
           setCurrentUser(u.email || u.name);
         }
       } catch {}
+      try { const r = await window.storage.get(STORE.textSize); if (r?.value) setTextSize(r.value); } catch {}
     })();
+  }, []);
+
+  const changeTextSize = useCallback(async (size) => {
+    setTextSize(size);
+    try { await window.storage.set(STORE.textSize, size); } catch {}
   }, []);
 
   const saveAssets = useCallback(async (v) => { setAssets(v); try { await window.storage.set(STORE.assets, JSON.stringify(v)); } catch {} }, []);
@@ -366,9 +373,13 @@ function App() {
     return match && (filterType === "All" || a.type === filterType) && (filterStatus === "All" || a.status === filterStatus);
   });
 
+  // ─── Text Size Scaling ───
+  const TEXT_SCALES = { sm: 12, md: 14, lg: 16, xl: 19 };
+  const baseFont = TEXT_SCALES[textSize] || 14;
+
   // ─── Styles ───
   const S = {
-    wrap: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 },
+    wrap: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: baseFont },
     hdr: { background: T.bg2, borderBottom: `1px solid ${T.border}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 },
     nav: { display: "flex", gap: 2, flexWrap: "wrap" },
     navBtn: (a) => ({ padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: T.font, display: "flex", alignItems: "center", gap: 5, background: a ? T.accentDim : "transparent", color: a ? T.accent : T.textMid, transition: "all .15s" }),
@@ -782,6 +793,9 @@ function App() {
     // Added assets list (for multi-add in employee-first mode)
     const [addedAssets, setAddedAssets] = useState([]);
 
+    // Spreadsheet scan state
+    const [parsedRows, setParsedRows] = useState([]);
+
     // Check for pre-selected employee from Employees list
     useEffect(() => {
       if (window._preEmp) {
@@ -925,6 +939,34 @@ function App() {
       setScanWhat("none");
     };
 
+    // ── Scan Spreadsheet / Printout ──
+    const scanSheet = async () => {
+      const img = capture(); if (!img) return;
+      const text = await doOCR(img);
+      setOcrText(text);
+      const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 3);
+      const rows = lines.map(line => {
+        const parts = line.split(/[|\t,;]+/).map(p => p.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+          return { id: uid(), computerName: parts[0], type: guessType(parts[1] || ""), serialNumber: parts[2] || "", model: parts[3] || "", assignedTo: parts[4] || "", empNo: parts[5] || "", department: parts[6] || "", location: "", status: "Active", notes: "OCR import", dateAdded: now(), lastModified: now(), modifiedBy: currentUser || "local" };
+        }
+        return null;
+      }).filter(Boolean);
+      setParsedRows(rows);
+      setScanWhat("none");
+      if (rows.length) notify(`Parsed ${rows.length} rows from image`);
+      else notify("Could not parse rows. Try better lighting or alignment.", "warn");
+    };
+
+    const importRows = () => {
+      let added = 0, skip = 0;
+      const next = [...assets];
+      parsedRows.forEach(r => { if (r.computerName && isNameUnique(r.computerName)) { next.push(r); added++; } else skip++; });
+      saveAssets(next);
+      notify(`Imported ${added}${skip ? `, skipped ${skip} duplicates` : ""}`);
+      setParsedRows([]); setOcrText("");
+    };
+
     // ── Manual Emp Lookup ──
     const manualLookup = async () => {
       if (!af.empNo.trim()) return;
@@ -968,7 +1010,7 @@ function App() {
     };
 
     const isScanning = scanWhat !== "none";
-    const scanColor = scanWhat === "emp" ? T.purple : T.accent;
+    const scanColor = scanWhat === "emp" ? T.purple : scanWhat === "sheet" ? T.orange : T.accent;
 
     return (
       <div style={{ maxWidth: 750, margin: "0 auto" }}>
@@ -983,9 +1025,11 @@ function App() {
             onClick={() => setMode("device")}>{I(ICO.pc, 15)} Device First</button>
           <button style={{ ...S.btn(mode === "employee" ? "purple" : "out"), flex: 1, justifyContent: "center", padding: "10px 12px" }}
             onClick={() => setMode("employee")}>{I(ICO.user, 15)} Employee First</button>
+          <button style={{ ...S.btn(mode === "sheet" ? "orange" : "out"), flex: 1, justifyContent: "center", padding: "10px 12px" }}
+            onClick={() => setMode("sheet")}>{I(ICO.list, 15)} Spreadsheet</button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: camOn ? "1fr 1fr" : "1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: (camOn && mode !== "sheet") ? "1fr 1fr" : "1fr", gap: 14 }}>
           {/* Camera Column */}
           <div style={S.card}>
             <div style={{ position: "relative", background: "#000", borderRadius: 8, overflow: "hidden", marginBottom: 12, aspectRatio: "4/3" }}>
@@ -993,7 +1037,7 @@ function App() {
               {!camOn && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.textDim }}>
                   {I(ICO.cam, 36)}
-                  <div style={{ marginTop: 8, fontSize: 12 }}>Camera for scanning labels & badges</div>
+                  <div style={{ marginTop: 8, fontSize: 12 }}>Camera for scanning labels, badges & printouts</div>
                   <button style={{ ...S.btn("pri"), marginTop: 10, padding: "9px 20px" }} onClick={startCam}>Start Camera</button>
                 </div>
               )}
@@ -1007,9 +1051,9 @@ function App() {
               )}
               {camOn && !busy && isScanning && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-                  <div style={{ border: `2px dashed ${scanColor}70`, borderRadius: 8, width: "75%", height: "45%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ border: `2px dashed ${scanColor}70`, borderRadius: 8, width: scanWhat === "sheet" ? "90%" : "75%", height: scanWhat === "sheet" ? "85%" : "45%", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <span style={{ color: "#fff", fontSize: 11, background: "rgba(0,0,0,.6)", padding: "3px 10px", borderRadius: 4 }}>
-                      {scanWhat === "emp" ? "Align badge / sticker" : "Align device label"}
+                      {scanWhat === "emp" ? "Align badge / sticker" : scanWhat === "sheet" ? "Align spreadsheet / printout" : "Align device label"}
                     </span>
                   </div>
                 </div>
@@ -1019,14 +1063,21 @@ function App() {
 
             {camOn && (
               <div style={{ display: "flex", gap: 6 }}>
-                <button style={{ ...S.btn("pri"), flex: 1, justifyContent: "center", padding: 10 }}
-                  onClick={() => { setScanWhat("device"); setTimeout(scanDevice, 100); }} disabled={busy}>
-                  {I(ICO.pc, 14)} Scan Device
-                </button>
-                <button style={{ ...S.btn("purple"), flex: 1, justifyContent: "center", padding: 10 }}
-                  onClick={() => { setScanWhat("emp"); setTimeout(scanEmployee, 100); }} disabled={busy}>
-                  {I(ICO.badge, 14)} Scan Badge
-                </button>
+                {mode !== "sheet" ? <>
+                  <button style={{ ...S.btn("pri"), flex: 1, justifyContent: "center", padding: 10 }}
+                    onClick={() => { setScanWhat("device"); setTimeout(scanDevice, 100); }} disabled={busy}>
+                    {I(ICO.pc, 14)} Scan Device
+                  </button>
+                  <button style={{ ...S.btn("purple"), flex: 1, justifyContent: "center", padding: 10 }}
+                    onClick={() => { setScanWhat("emp"); setTimeout(scanEmployee, 100); }} disabled={busy}>
+                    {I(ICO.badge, 14)} Scan Badge
+                  </button>
+                </> : (
+                  <button style={{ ...S.btn("orange"), flex: 1, justifyContent: "center", padding: 10 }}
+                    onClick={() => { setScanWhat("sheet"); setTimeout(scanSheet, 100); }} disabled={busy}>
+                    {I(ICO.list, 14)} Capture Spreadsheet
+                  </button>
+                )}
               </div>
             )}
 
@@ -1040,8 +1091,8 @@ function App() {
             )}
           </div>
 
-          {/* Form Column */}
-          <div>
+          {/* Form Column - shown in device/employee modes */}
+          {mode !== "sheet" && <div>
             {/* Employee Info Card */}
             <div style={{ background: empInfo ? (empInfo.status === "Active" ? T.greenDim : empInfo.status === "Terminated" ? T.redDim : T.orangeDim) : T.purpleDim, border: `1px solid ${empInfo ? (empInfo.status === "Active" ? T.green : empInfo.status === "Terminated" ? T.red : T.orange) : T.purple}30`, borderRadius: 10, padding: 14, marginBottom: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: empInfo ? (empInfo.status === "Active" ? T.green : empInfo.status === "Terminated" ? T.red : T.orange) : T.purple, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
@@ -1127,11 +1178,44 @@ function App() {
                 ))}
               </div>
             )}
-          </div>
+          </div>}
+
+          {/* Sheet Import UI - shown in sheet mode */}
+          {mode === "sheet" && parsedRows.length > 0 && (
+            <div style={{ ...S.card, marginTop: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>📋 Parsed {parsedRows.length} rows</h3>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button style={S.btn("out")} onClick={() => setParsedRows([])}>Clear</button>
+                  <button style={S.btn("green")} onClick={importRows}>{I(ICO.check, 14)} Import Valid</button>
+                </div>
+              </div>
+              <div style={{ maxHeight: 300, overflow: "auto" }}>
+                {parsedRows.map((r, i) => {
+                  const dup = !isNameUnique(r.computerName);
+                  return <div key={i} style={{ padding: "7px 10px", borderRadius: 6, marginBottom: 4, fontSize: 12, background: dup ? T.redDim : T.bg, border: `1px solid ${dup ? T.red + "30" : T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontFamily: T.mono, fontWeight: 600, color: dup ? T.red : T.accent }}>{r.computerName || "(empty)"}</span>
+                      <span style={{ color: T.textDim, marginLeft: 8 }}>{r.type}</span>
+                      {r.serialNumber && <span style={{ color: T.textDim, marginLeft: 8, fontFamily: T.mono, fontSize: 10 }}>SN: {r.serialNumber}</span>}
+                      {r.model && <span style={{ color: T.textDim, marginLeft: 8, fontSize: 11 }}>{r.model}</span>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {r.assignedTo && <span style={{ fontSize: 11, color: T.textMid }}>{r.assignedTo}</span>}
+                      {dup && <span style={{ color: T.red, fontWeight: 700, fontSize: 10 }}>DUP</span>}
+                    </div>
+                  </div>;
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>
+                {parsedRows.filter(r => isNameUnique(r.computerName)).length} valid · {parsedRows.filter(r => !isNameUnique(r.computerName)).length} duplicates will be skipped
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ marginTop: 10, fontSize: 11, color: T.textDim, textAlign: "center" }}>
-          {mode === "device" ? "Scan device → fill details → scan employee badge → save. All from this page." : "Scan employee badge → then scan & add multiple devices for them."}
+          {mode === "device" ? "Scan device → fill details → scan employee badge → save. All from this page." : mode === "employee" ? "Scan employee badge → then scan & add multiple devices for them." : "Point camera at a printed spreadsheet or list → capture → review & import rows."}
         </div>
       </div>
     );
@@ -1438,20 +1522,37 @@ function App() {
             </div>
           </div>
         </div>
-        <nav style={S.nav}>
-          {[
-            { v: "assets", icon: ICO.pc, label: "Assets" },
-            { v: "employees", icon: ICO.user, label: "People" },
-            { v: "quickEntry", icon: ICO.scan, label: "Quick Entry" },
-            { v: "reports", icon: ICO.list, label: "Reports" },
-            { v: "audit", icon: ICO.alert, label: "Audit" },
-            { v: "settings", icon: SETTINGS_PASSWORD && !settingsUnlocked ? ICO.lock : ICO.gear, label: "Settings" },
-          ].map(({ v, icon, label }) => (
-            <button key={v} style={S.navBtn(view === v || (v === "assets" && view === "form") || (v === "employees" && view === "empForm"))} onClick={() => setView(v)}>
-              {I(icon, 15)} <span>{label}</span>
-            </button>
-          ))}
-        </nav>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <nav style={S.nav}>
+            {[
+              { v: "assets", icon: ICO.pc, label: "Assets" },
+              { v: "employees", icon: ICO.user, label: "People" },
+              { v: "quickEntry", icon: ICO.scan, label: "Quick Entry" },
+              { v: "reports", icon: ICO.list, label: "Reports" },
+              { v: "audit", icon: ICO.alert, label: "Audit" },
+              { v: "settings", icon: SETTINGS_PASSWORD && !settingsUnlocked ? ICO.lock : ICO.gear, label: "Settings" },
+            ].map(({ v, icon, label }) => (
+              <button key={v} style={S.navBtn(view === v || (v === "assets" && view === "form") || (v === "employees" && view === "empForm"))} onClick={() => setView(v)}>
+                {I(icon, 15)} <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+
+          {/* Text Size Control */}
+          <div style={{ display: "flex", alignItems: "center", gap: 1, marginLeft: 6, background: T.bg, borderRadius: 6, padding: 2, border: `1px solid ${T.border}` }}>
+            {[
+              { k: "sm", label: "A", sz: 10 },
+              { k: "md", label: "A", sz: 13 },
+              { k: "lg", label: "A", sz: 16 },
+              { k: "xl", label: "A", sz: 19 },
+            ].map(({ k, label, sz }) => (
+              <button key={k} onClick={() => changeTextSize(k)} title={`Text size: ${k.toUpperCase()}`}
+                style={{ background: textSize === k ? T.accentDim : "none", color: textSize === k ? T.accent : T.textDim, border: "none", cursor: "pointer", borderRadius: 4, padding: "3px 5px", fontSize: sz, fontWeight: 700, fontFamily: T.font, lineHeight: 1, transition: "all .15s", minWidth: 22, textAlign: "center" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </header>
 
       <main style={S.main}>
