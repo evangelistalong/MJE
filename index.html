@@ -22,6 +22,8 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ║  Once set here, ALL coworkers get connected automatically.       ║
 // ║  No one needs to touch the Settings page.                        ║
 // ╚════════════════════════════════════════════════════════════════════╝
+// ⚡ PASTE YOUR GOOGLE APPS SCRIPT URL BELOW (between the quotes)
+// Example: "https://script.google.com/macros/s/AKfycb.../exec"
 const PRECONFIGURED_URL = "https://script.google.com/macros/s/AKfycbwLMeN1HFReWHFQb-1K1Q8jvTATDN7tdl9tnvN79Ftry_fUv9eEw3TvmAa7ULrp3lp1Rg/exec";
 
 // ╔════════════════════════════════════════════════════════════════════╗
@@ -42,7 +44,7 @@ if (!window.storage) {
 const DEFAULT_ASSET_TYPES = ["PC", "MAC", "Laptop", "Server", "Monitor", "Printer", "Other"];
 const DEFAULT_STATUSES = ["Active", "Inactive", "Maintenance", "Decommissioned"];
 const DEFAULT_EMP_STATUSES = ["Active", "Inactive", "On Leave", "Terminated"];
-const STORE = { assets: "hwa-assets-v3", employees: "hwa-employees-v3", settings: "hwa-settings-v3", user: "hwa-user-v3", textSize: "hwa-textsize", dropdowns: "hwa-dropdowns-v1" };
+const STORE = { assets: "hwa-assets-v3", employees: "hwa-employees-v3", settings: "hwa-settings-v3", user: "hwa-user-v3", textSize: "hwa-textsize", dropdowns: "hwa-dropdowns-v1", password: "hwa-settings-pw" };
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const now = () => new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -118,6 +120,7 @@ function App() {
   const [auditLog, setAuditLog] = useState([]);
   const [settingsUnlocked, setSettingsUnlocked] = useState(!SETTINGS_PASSWORD);
   const [undoStack, setUndoStack] = useState([]);
+  const [settingsPassword, setSettingsPassword] = useState(SETTINGS_PASSWORD);
   const [textSize, setTextSize] = useState("md"); // sm, md, lg, xl
   const [dropdowns, setDropdowns] = useState({
     assetTypes: [...DEFAULT_ASSET_TYPES],
@@ -168,7 +171,11 @@ function App() {
         const r = await window.storage.get(STORE.settings);
         if (r?.value) {
           const saved = JSON.parse(r.value);
+          // PRECONFIGURED_URL in code ALWAYS wins. Only fall back to saved url if code has none.
           setSettings({ ...saved, url: PRECONFIGURED_URL || saved.url || "" });
+        } else if (PRECONFIGURED_URL) {
+          // No saved settings but we have a preconfigured URL — use it
+          setSettings(prev => ({ ...prev, url: PRECONFIGURED_URL }));
         }
       } catch {}
       try {
@@ -180,6 +187,16 @@ function App() {
         }
       } catch {}
       try { const r = await window.storage.get(STORE.textSize); if (r?.value) setTextSize(r.value); } catch {}
+      // Password: code constant always takes priority. Storage only used if changed from UI.
+      try {
+        const r = await window.storage.get(STORE.password);
+        if (r?.value && !SETTINGS_PASSWORD) {
+          // Only use stored password if code constant is empty (no hardcoded pw)
+          setSettingsPassword(r.value);
+          setSettingsUnlocked(false);
+        }
+        // If SETTINGS_PASSWORD is set in code, it always wins (already set in initial state)
+      } catch {}
       try {
         const r = await window.storage.get(STORE.dropdowns);
         if (r?.value) {
@@ -372,13 +389,32 @@ function App() {
 
   // ─── Audit Log ───
   const fetchAuditLog = async () => {
-    if (!settings.url) { notify("Set Apps Script URL first", "warn"); return; }
+    if (!settings.url) { notify("Set Apps Script URL in Settings first", "warn"); return; }
     setSyncing(true);
-    const r = await apiCall("GET", { action: "read_audit_log", limit: "100" });
+    // Try the read_audit_log action first
+    let r = await apiCall("GET", { action: "read_audit_log", limit: "100" });
     if (r?.success && r.entries) {
       setAuditLog(r.entries);
       notify(`Loaded ${r.entries.length} log entries (${r.total} total)`);
-    } else if (r) notify("Failed to load audit log", "error");
+    } else {
+      // Fallback: try reading "Audit Log" sheet directly
+      r = await apiCall("GET", { action: "read", sheet: "Audit Log" });
+      if (r?.success && r.data) {
+        const entries = [...r.data].reverse();
+        setAuditLog(entries);
+        notify(`Loaded ${entries.length} log entries`);
+      } else if (r) {
+        // Try "AuditLog" (no space)
+        r = await apiCall("GET", { action: "read", sheet: "AuditLog" });
+        if (r?.success && r.data) {
+          const entries = [...r.data].reverse();
+          setAuditLog(entries);
+          notify(`Loaded ${entries.length} log entries`);
+        } else {
+          notify("Failed to load audit log — check Apps Script", "error");
+        }
+      }
+    }
     setSyncing(false);
   };
 
@@ -1341,7 +1377,7 @@ function App() {
 
   // ─── AUDIT LOG VIEW ───
   const AuditLogView = () => {
-    useEffect(() => { if (settings.url && !auditLog.length) fetchAuditLog(); }, []);
+    useEffect(() => { if (settings.url && !auditLog.length) fetchAuditLog(); }, [settings.url]);
     const actionColor = (a) => ({ ADD: T.green, EDIT: T.accent, DELETE: T.red, PUSH: T.orange, PULL: T.purple }[a?.toUpperCase()] || T.textMid);
     const actionIcon = (a) => ({ ADD: "➕", EDIT: "✏️", DELETE: "🗑️", PUSH: "⬆️", PULL: "⬇️" }[a?.toUpperCase()] || "📝");
 
@@ -1454,7 +1490,7 @@ function App() {
     const [eraseConfirm, setEraseConfirm] = useState({ show: false, target: "", typed: "" });
 
     const checkPw = () => {
-      if (pw === SETTINGS_PASSWORD) { setSettingsUnlocked(true); setPwError(false); }
+      if (pw === settingsPassword) { setSettingsUnlocked(true); setPwError(false); }
       else { setPwError(true); }
     };
 
@@ -1515,8 +1551,55 @@ function App() {
       );
     };
 
+    // ─── Password Changer Sub-component ───
+    const PasswordChanger = () => {
+      const [newPw, setNewPw] = useState("");
+      const [confirmPw, setConfirmPw] = useState("");
+      const savePw = async () => {
+        if (newPw !== confirmPw) { notify("Passwords don't match", "error"); return; }
+        setSettingsPassword(newPw);
+        try { 
+          if (newPw) {
+            await window.storage.set(STORE.password, newPw);
+          } else {
+            await window.storage.delete(STORE.password);
+          }
+        } catch {}
+        setNewPw(""); setConfirmPw("");
+        notify(newPw ? "Password updated" : "Password removed — settings now open");
+      };
+      return (
+        <div>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>
+            {settingsPassword ? `Current password is set (${settingsPassword.length} chars). Change or remove it below.` : "No password set — settings are open to anyone."}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div style={S.fg}>
+              <label style={{ ...S.lbl, fontSize: 10 }}>New Password</label>
+              <input style={{ ...S.fi, padding: "7px 10px", fontSize: 12, letterSpacing: 2 }} type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="New password" />
+            </div>
+            <div style={S.fg}>
+              <label style={{ ...S.lbl, fontSize: 10 }}>Confirm</label>
+              <input style={{ ...S.fi, padding: "7px 10px", fontSize: 12, letterSpacing: 2, borderColor: confirmPw && confirmPw !== newPw ? T.red : T.border }} type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} placeholder="Confirm"
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); savePw(); } }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button style={S.btn("pri")} onClick={savePw} disabled={!newPw && settingsPassword}>
+              {newPw ? "Update Password" : "Remove Password"}
+            </button>
+            {settingsPassword && <button style={{ ...S.btn("ghost"), fontSize: 11 }} onClick={async () => {
+              setSettingsPassword("");
+              try { await window.storage.delete(STORE.password); } catch {}
+              notify("Password removed — settings now open");
+            }}>Remove Password</button>}
+          </div>
+        </div>
+      );
+    };
+
     // Password gate
-    if (SETTINGS_PASSWORD && !settingsUnlocked) {
+    if (settingsPassword && !settingsUnlocked) {
       return (
         <div style={{ maxWidth: 380, margin: "60px auto", textAlign: "center" }}>
           <div style={{ width: 56, height: 56, background: T.purpleDim, border: `1px solid ${T.purple}30`, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
@@ -1532,7 +1615,7 @@ function App() {
             </div>
             <button type="submit" style={{ ...S.btn("pri"), width: "100%", justifyContent: "center", padding: "10px 20px" }}>{I(ICO.lock, 14)} Unlock</button>
           </form>
-          <div style={{ fontSize: 10, color: T.textDim, marginTop: 12 }}>Password is set in SETTINGS_PASSWORD in the code file</div>
+          <div style={{ fontSize: 10, color: T.textDim, marginTop: 12 }}>Default password: "admin" — changeable from within Settings</div>
         </div>
       );
     }
@@ -1610,6 +1693,11 @@ function App() {
             <button style={S.btn("red")} onClick={() => setEraseConfirm({ show: true, target: "assets", typed: "" })}>{I(ICO.trash, 14)} Clear Assets ({assets.length})</button>
             <button style={S.btn("red")} onClick={() => setEraseConfirm({ show: true, target: "employees", typed: "" })}>{I(ICO.trash, 14)} Clear Employees ({employees.length})</button>
           </div>
+        </div>
+
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>🔒 Settings Password</h3>
+          <PasswordChanger />
         </div>
 
         <div style={{ ...S.card, marginBottom: 16 }}>
@@ -1714,7 +1802,7 @@ function App() {
             </div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto" }}>
           <nav style={S.nav}>
             {[
               { v: "assets", icon: ICO.pc, label: "Assets" },
@@ -1722,28 +1810,13 @@ function App() {
               { v: "quickEntry", icon: ICO.scan, label: "Quick Entry" },
               { v: "reports", icon: ICO.list, label: "Reports" },
               { v: "audit", icon: ICO.alert, label: "Audit" },
-              { v: "settings", icon: SETTINGS_PASSWORD && !settingsUnlocked ? ICO.lock : ICO.gear, label: "Settings" },
+              { v: "settings", icon: settingsPassword && !settingsUnlocked ? ICO.lock : ICO.gear, label: "Settings" },
             ].map(({ v, icon, label }) => (
               <button key={v} style={S.navBtn(view === v || (v === "assets" && view === "form") || (v === "employees" && view === "empForm"))} onClick={() => setView(v)}>
                 {I(icon, 15)} <span>{label}</span>
               </button>
             ))}
           </nav>
-
-          {/* Text Size Control */}
-          <div style={{ display: "flex", alignItems: "center", gap: 1, marginLeft: 6, background: T.bg, borderRadius: 6, padding: 2, border: `1px solid ${T.border}` }}>
-            {[
-              { k: "sm", label: "A", sz: 10 },
-              { k: "md", label: "A", sz: 13 },
-              { k: "lg", label: "A", sz: 16 },
-              { k: "xl", label: "A", sz: 19 },
-            ].map(({ k, label, sz }) => (
-              <button key={k} onClick={() => changeTextSize(k)} title={`Text size: ${k.toUpperCase()}`}
-                style={{ background: textSize === k ? T.accentDim : "none", color: textSize === k ? T.accent : T.textDim, border: "none", cursor: "pointer", borderRadius: 4, padding: "3px 5px", fontSize: sz, fontWeight: 700, fontFamily: T.font, lineHeight: 1, transition: "all .15s", minWidth: 22, textAlign: "center" }}>
-                {label}
-              </button>
-            ))}
-          </div>
         </div>
       </header>
 
@@ -1757,6 +1830,22 @@ function App() {
         {view === "audit" && <AuditLogView />}
         {view === "settings" && <SettingsView />}
       </main>
+
+      {/* Floating Text Size Control */}
+      <div style={{ position: "fixed", bottom: 16, right: 16, zIndex: 99, display: "flex", alignItems: "center", gap: 1, background: T.card, borderRadius: 10, padding: "4px 5px", border: `1px solid ${T.border}`, boxShadow: "0 2px 12px rgba(0,0,0,.4)" }}>
+        <span style={{ fontSize: 10, color: T.textDim, padding: "0 4px", fontWeight: 600 }}>Aa</span>
+        {[
+          { k: "sm", sz: 10 },
+          { k: "md", sz: 13 },
+          { k: "lg", sz: 16 },
+          { k: "xl", sz: 20 },
+        ].map(({ k, sz }) => (
+          <button key={k} onClick={() => changeTextSize(k)} title={`Text: ${k.toUpperCase()}`}
+            style={{ background: textSize === k ? T.accent : "none", color: textSize === k ? "#fff" : T.textDim, border: "none", cursor: "pointer", borderRadius: 6, padding: "5px 7px", fontSize: sz, fontWeight: 700, fontFamily: T.font, lineHeight: 1, transition: "all .15s", minWidth: 26, textAlign: "center" }}>
+            A
+          </button>
+        ))}
+      </div>
       <div style={{ textAlign: "right", padding: "8px 16px 10px", fontSize: 9, color: T.border, letterSpacing: ".04em", fontFamily: T.mono, userSelect: "none" }}>by: MJE</div>
     </div>
   );
