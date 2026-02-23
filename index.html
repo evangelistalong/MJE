@@ -145,18 +145,26 @@ function App() {
     setUndoStack(prev => prev.slice(0, -1));
     if (last.type === "asset") {
       if (last.action === "delete") {
-        saveAssets([...assets, last.data]);
+        const updated = [...assets, last.data];
+        saveAssets(updated);
+        autoSyncAssets(updated);
         notify("Asset restored");
       } else if (last.action === "edit") {
-        saveAssets(assets.map(a => a.id === last.data.id ? last.data : a));
+        const updated = assets.map(a => a.id === last.data.id ? last.data : a);
+        saveAssets(updated);
+        autoSyncAssets(updated);
         notify("Change undone");
       }
     } else if (last.type === "employee") {
       if (last.action === "delete") {
-        saveEmployees([...employees, last.data]);
+        const updated = [...employees, last.data];
+        saveEmployees(updated);
+        autoSyncEmployees(updated);
         notify("Employee restored");
       } else if (last.action === "edit") {
-        saveEmployees(employees.map(e => e.id === last.data.id ? last.data : e));
+        const updated = employees.map(e => e.id === last.data.id ? last.data : e);
+        saveEmployees(updated);
+        autoSyncEmployees(updated);
         notify("Change undone");
       }
     }
@@ -258,6 +266,23 @@ function App() {
   };
   const findEmployee = (empNo) => employees.find(e => e.empNo.toUpperCase() === empNo.trim().toUpperCase());
 
+  // ─── Auto-sync to Google Sheets ───
+  const autoSyncAssets = useCallback(async (updatedAssets) => {
+    if (!settings.url) return;
+    try {
+      const userTag = currentUser || "unknown";
+      await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ action: "write", sheet: "Assets", data: updatedAssets, _user: userTag }) });
+    } catch (e) { console.log("Auto-sync assets failed:", e.message); }
+  }, [settings.url, currentUser]);
+
+  const autoSyncEmployees = useCallback(async (updatedEmployees) => {
+    if (!settings.url) return;
+    try {
+      const userTag = currentUser || "unknown";
+      await fetch(settings.url, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ action: "write", sheet: "Employees", data: updatedEmployees, _user: userTag }) });
+    } catch (e) { console.log("Auto-sync employees failed:", e.message); }
+  }, [settings.url, currentUser]);
+
   // ─── Asset CRUD ───
   const upsertAsset = (asset, silent = false) => {
     if (!asset.computerName.trim()) { notify("Computer name required", "error"); return false; }
@@ -270,11 +295,15 @@ function App() {
     if (isEdit) {
       const old = assets.find(a => a.id === asset.id);
       if (old) pushUndo("asset", { ...old }, "edit");
-      saveAssets(assets.map(a => a.id === asset.id ? asset : a));
+      const updated = assets.map(a => a.id === asset.id ? asset : a);
+      saveAssets(updated);
+      autoSyncAssets(updated);
       if (!silent) notify("Asset updated");
     } else {
       asset.dateAdded = now();
-      saveAssets([...assets, asset]);
+      const updated = [...assets, asset];
+      saveAssets(updated);
+      autoSyncAssets(updated);
       if (!silent) notify("Asset added");
     }
     if (!silent) { setView("assets"); setEditId(null); }
@@ -283,7 +312,9 @@ function App() {
   const deleteAsset = (id) => {
     const a = assets.find(x => x.id === id);
     if (a) pushUndo("asset", { ...a }, "delete");
-    saveAssets(assets.filter(x => x.id !== id));
+    const updated = assets.filter(x => x.id !== id);
+    saveAssets(updated);
+    autoSyncAssets(updated);
     notify(`"${a?.computerName}" deleted`, "ok", { label: "Undo", fn: doUndo });
   };
 
@@ -296,10 +327,14 @@ function App() {
     if (isEdit) {
       const old = employees.find(e => e.id === emp.id);
       if (old) pushUndo("employee", { ...old }, "edit");
-      saveEmployees(employees.map(e => e.id === emp.id ? emp : e));
+      const updated = employees.map(e => e.id === emp.id ? emp : e);
+      saveEmployees(updated);
+      autoSyncEmployees(updated);
       notify("Employee updated");
     } else {
-      saveEmployees([...employees, emp]);
+      const updated = [...employees, emp];
+      saveEmployees(updated);
+      autoSyncEmployees(updated);
       notify("Employee added");
     }
     setView("employees"); setEditId(null); return true;
@@ -307,7 +342,9 @@ function App() {
   const deleteEmployee = (id) => {
     const e = employees.find(x => x.id === id);
     if (e) pushUndo("employee", { ...e }, "delete");
-    saveEmployees(employees.filter(x => x.id !== id));
+    const updated = employees.filter(x => x.id !== id);
+    saveEmployees(updated);
+    autoSyncEmployees(updated);
     notify(`"${e?.fullName}" deleted`, "ok", { label: "Undo", fn: doUndo });
   };
 
@@ -498,6 +535,7 @@ function App() {
         </select>
         <button style={S.btn("pri")} onClick={() => { setEditId(null); setView("form"); }}>{I(ICO.plus, 15)} Add</button>
         <button style={S.btn("out")} onClick={exportCSV}>{I(ICO.down, 15)} CSV</button>
+        {settings.url && <button style={S.btn("out")} onClick={pullAssets} disabled={syncing} title="Pull new assets from Google Sheet">{I(ICO.down, 15)} Pull</button>}
       </div>
       {filtered.length === 0 ? (
         <div style={{ textAlign: "center", padding: 50, color: T.textDim }}>
@@ -568,6 +606,7 @@ function App() {
           <input style={S.inp} placeholder="Search employees..." value={empSearch} onChange={e => setEmpSearch(e.target.value)} />
         </div>
         <button style={S.btn("pri")} onClick={() => { setEditId(null); setView("empForm"); }}>{I(ICO.plus, 15)} Add Employee</button>
+        {settings.url && <button style={S.btn("out")} onClick={pullEmployees} disabled={syncing} title="Pull new employees from Google Sheet">{I(ICO.down, 15)} Pull</button>}
       </div>
       {filt.length === 0 ? (
         <div style={{ textAlign: "center", padding: 50, color: T.textDim }}>
@@ -1683,13 +1722,15 @@ function App() {
         </div>
 
         <div style={{ ...S.card, marginBottom: 16 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Sync Data</h3>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Sync Data</h3>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>Changes auto-sync to Google Sheets. Use Pull to import data added directly in the spreadsheet.</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <button style={S.btn("pri")} onClick={pushAssets} disabled={syncing}>{I(ICO.up, 15)} Push Assets</button>
             <button style={S.btn("out")} onClick={pullAssets} disabled={syncing}>{I(ICO.down, 15)} Pull Assets</button>
-            <button style={S.btn("green")} onClick={pushEmployees} disabled={syncing}>{I(ICO.up, 15)} Push Employees</button>
             <button style={S.btn("out")} onClick={pullEmployees} disabled={syncing}>{I(ICO.down, 15)} Pull Employees</button>
+            <button style={S.btn("pri")} onClick={pushAssets} disabled={syncing}>{I(ICO.up, 15)} Force Push Assets</button>
+            <button style={S.btn("green")} onClick={pushEmployees} disabled={syncing}>{I(ICO.up, 15)} Force Push Employees</button>
           </div>
+          <div style={{ fontSize: 10, color: T.textDim, marginTop: 6 }}>Force Push overwrites the entire sheet with local data. Use if auto-sync missed something.</div>
           {syncing && <div style={{ fontSize: 12, color: T.orange, marginTop: 8 }}>Syncing...</div>}
         </div>
 
@@ -1805,7 +1846,7 @@ function App() {
             <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-.01em" }}>Asset Tracker</div>
             <div style={{ fontSize: 9, color: T.textDim, textTransform: "uppercase", letterSpacing: ".06em", display: "flex", alignItems: "center", gap: 4 }}>
               {currentUser ? <span style={{ textTransform: "none", color: T.textMid, cursor: "pointer" }} title="Click to sign out" onClick={logoutUser}>{currentUser.split("@")[0]} ✕</span> : "Hardware · Employees"}
-              {settings.url && <span title="Connected" style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: T.green, marginLeft: 4 }} />}
+              {settings.url && <span title={syncing ? "Syncing..." : "Connected — auto-sync on"} style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: syncing ? T.orange : T.green, marginLeft: 4, transition: "background .3s" }} />}
             </div>
           </div>
         </div>
