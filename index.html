@@ -466,7 +466,7 @@ function App() {
     fiMono: { width: "100%", padding: "9px 12px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, color: T.accent, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box", letterSpacing: ".02em" },
     badge: (c) => ({ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, background: c + "16", color: c }),
     stat: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", flex: 1, minWidth: 100 },
-    th: { padding: "9px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.textDim, borderBottom: `1px solid ${T.border}`, background: T.bg2, position: "sticky", top: 49, zIndex: 10 },
+    th: { padding: "9px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.textDim, borderBottom: `1px solid ${T.border}`, background: T.bg2 },
     td: { padding: "10px 12px", borderBottom: `1px solid ${T.border}08`, fontSize: 12.5, verticalAlign: "middle" },
   };
   const stColor = (s) => ({ Active: T.green, Inactive: T.textDim, Maintenance: T.orange, Decommissioned: T.red, "On Leave": T.orange, Terminated: T.red }[s] || T.textMid);
@@ -1437,12 +1437,12 @@ function App() {
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                 <thead>
                   <tr>
-                    <th style={{ ...S.th, position: "static", width: "18%" }}>Time</th>
-                    <th style={{ ...S.th, position: "static", width: "12%" }}>User</th>
-                    <th style={{ ...S.th, position: "static", width: "10%" }}>Action</th>
-                    <th style={{ ...S.th, position: "static", width: "10%" }}>Sheet</th>
-                    <th style={{ ...S.th, position: "static", width: "20%" }}>Target</th>
-                    <th style={{ ...S.th, position: "static", width: "30%" }}>Details</th>
+                    <th style={{ ...S.th, width: "18%" }}>Time</th>
+                    <th style={{ ...S.th, width: "12%" }}>User</th>
+                    <th style={{ ...S.th, width: "10%" }}>Action</th>
+                    <th style={{ ...S.th, width: "10%" }}>Sheet</th>
+                    <th style={{ ...S.th, width: "20%" }}>Target</th>
+                    <th style={{ ...S.th, width: "30%" }}>Details</th>
                   </tr>
                 </thead>
                 <tbody>
