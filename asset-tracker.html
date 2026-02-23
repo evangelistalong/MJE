@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Asset Tracker — Hardware & Employee Manager</title>
+<style>
+  html, body, #root { margin: 0; padding: 0; height: 100%; }
+  body { background: #0c0e14; }
+</style>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ╔════════════════════════════════════════════════════════════════════╗
+// ║  👉 PASTE YOUR GOOGLE APPS SCRIPT URL BELOW                      ║
+// ║  Once set here, ALL coworkers get connected automatically.       ║
+// ║  No one needs to touch the Settings page.                        ║
+// ╚════════════════════════════════════════════════════════════════════╝
+const PRECONFIGURED_URL = "";
+// ↑ Example:
+// const PRECONFIGURED_URL = "https://script.google.com/macros/s/AKfycbx.../exec";
+
+if (!window.storage) {
+  window.storage = {
+    async get(key) { try { const v = localStorage.getItem(key); return v !== null ? { key, value: v } : null; } catch { return null; } },
+    async set(key, value) { try { localStorage.setItem(key, value); return { key, value }; } catch { return null; } },
+    async delete(key) { try { localStorage.removeItem(key); return { key, deleted: true }; } catch { return null; } },
+    async list(prefix) { const keys = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (!prefix || k.startsWith(prefix)) keys.push(k); } return { keys }; }
+  };
+}
+
+
+// const PRECONFIGURED_URL = "https://script.google.com/macros/s/AKfycbx.../exec";
+
+// ─── Constants ───
+const ASSET_TYPES = ["PC", "MAC", "Laptop", "Server", "Monitor", "Printer", "Other"];
+const STATUSES = ["Active", "Inactive", "Maintenance", "Decommissioned"];
+const EMP_STATUSES = ["Active", "Inactive", "On Leave", "Terminated"];
+const STORE = { assets: "hwa-assets-v3", employees: "hwa-employees-v3", settings: "hwa-settings-v3", user: "hwa-user-v3" };
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const now = () => new Date().toISOString().slice(0, 16).replace("T", " ");
+const emptyAsset = () => ({ id: uid(), computerName: "", type: "PC", serialNumber: "", model: "", assignedTo: "", empNo: "", department: "", location: "", status: "Active", notes: "", dateAdded: now(), lastModified: now(), modifiedBy: "" });
+const emptyEmployee = () => ({ id: uid(), empNo: "", fullName: "", department: "", position: "", email: "", phone: "", location: "", status: "Active", notes: "" });
+
+// ─── Theme ───
+const T = {
+  bg: "#0c0e14", bg2: "#12151f", card: "#181c28", cardHover: "#1e2336",
+  border: "#262b3d", borderLight: "#2f3651",
+  accent: "#4f8ff7", accentDim: "#4f8ff720", accentHover: "#3a7ae8",
+  green: "#22c55e", greenDim: "#22c55e18", greenText: "#16a34a",
+  orange: "#f59e0b", orangeDim: "#f59e0b18", orangeText: "#d97706",
+  red: "#ef4444", redDim: "#ef444418", redText: "#dc2626",
+  purple: "#a78bfa", purpleDim: "#a78bfa18",
+  text: "#e1e7ef", textMid: "#8b95a8", textDim: "#5a6478",
+  font: "'DM Sans', 'Segoe UI', system-ui, sans-serif",
+  mono: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', monospace",
+};
+
+// ─── Icons ───
+const I = (d, s = 20) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d}/></svg>;
+const ICO = {
+  plus: "M12 5v14M5 12h14", search: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z",
+  cam: "M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2zM12 17a4 4 0 100-8 4 4 0 000 8z",
+  edit: "M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z",
+  trash: "M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6",
+  sync: "M23 4v6h-6M1 20v-6h6M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15",
+  gear: "M12 15a3 3 0 100-6 3 3 0 000 6z",
+  x: "M18 6L6 18M6 6l12 12", check: "M20 6L9 17l-5-5",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  up: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12",
+  down: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3",
+  pc: "M2 3h20v14H2zM8 21h8M12 17v4",
+  user: "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 3a4 4 0 100 8 4 4 0 000-8z",
+  badge: "M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M8.5 3a4 4 0 100 8 4 4 0 000-8zM17 11l2 2 4-4",
+  alert: "M12 9v4M12 17h.01",
+  zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8",
+};
+
+// ─── Toast ───
+function Toast({ msg, type, onClose }) {
+  useEffect(() => { const t = setTimeout(onClose, 3200); return () => clearTimeout(t); }, [onClose]);
+  const bg = type === "error" ? T.red : type === "warn" ? T.orange : T.green;
+  return <div style={{ position: "fixed", top: 14, right: 14, zIndex: 9999, padding: "11px 18px", background: bg, color: "#fff", borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: T.font, boxShadow: "0 8px 30px rgba(0,0,0,.35)", maxWidth: 380, animation: "slideIn .25s ease", display: "flex", gap: 8, alignItems: "center" }}>
+    <span style={{ flex: 1 }}>{msg}</span>
+    <button onClick={onClose} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 0 }}>{I(ICO.x, 14)}</button>
+  </div>;
+}
+
+// ═══════════════════════════════════════════
+//  MAIN APP
+// ═══════════════════════════════════════════
+function App() {
+  const [assets, setAssets] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [settings, setSettings] = useState({ url: PRECONFIGURED_URL || "", sheet: "Assets" });
+  const [view, setView] = useState("assets"); // assets, employees, form, empForm, scan, settings
+  const [editId, setEditId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState("All");
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [toast, setToast] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [scanTarget, setScanTarget] = useState("device"); // device | empId | sheet
+  const [ocrReady, setOcrReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState("");
+  const [userProfile, setUserProfile] = useState(null); // { name, email }
+  const [auditLog, setAuditLog] = useState([]);
+
+  const notify = (msg, type = "ok") => setToast({ msg, type, k: Date.now() });
+
+  // ─── Persistence ───
+  useEffect(() => {
+    (async () => {
+      try { const r = await window.storage.get(STORE.assets); if (r?.value) setAssets(JSON.parse(r.value)); } catch {}
+      try { const r = await window.storage.get(STORE.employees); if (r?.value) setEmployees(JSON.parse(r.value)); } catch {}
+      try {
+        const r = await window.storage.get(STORE.settings);
+        if (r?.value) {
+          const saved = JSON.parse(r.value);
+          setSettings({ ...saved, url: PRECONFIGURED_URL || saved.url || "" });
+        }
+      } catch {}
+      try {
+        const r = await window.storage.get(STORE.user);
+        if (r?.value) {
+          const u = JSON.parse(r.value);
+          setUserProfile(u);
+          setCurrentUser(u.email || u.name);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const saveAssets = useCallback(async (v) => { setAssets(v); try { await window.storage.set(STORE.assets, JSON.stringify(v)); } catch {} }, []);
+  const saveEmployees = useCallback(async (v) => { setEmployees(v); try { await window.storage.set(STORE.employees, JSON.stringify(v)); } catch {} }, []);
+  const saveSettings = useCallback(async (v) => { setSettings(v); try { await window.storage.set(STORE.settings, JSON.stringify(v)); } catch {} }, []);
+
+  const saveUserProfile = useCallback(async (profile) => {
+    setUserProfile(profile);
+    setCurrentUser(profile.email || profile.name);
+    try { await window.storage.set(STORE.user, JSON.stringify(profile)); } catch {}
+  }, []);
+
+  const logoutUser = useCallback(async () => {
+    setUserProfile(null);
+    setCurrentUser("");
+    try { await window.storage.delete(STORE.user); } catch {}
+  }, []);
+
+  // ─── Load Tesseract + Fonts ───
+  useEffect(() => {
+    if (!window.Tesseract) {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+      s.onload = () => setOcrReady(true);
+      document.head.appendChild(s);
+    } else setOcrReady(true);
+
+    const f = document.createElement("link");
+    f.href = "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap";
+    f.rel = "stylesheet"; document.head.appendChild(f);
+  }, []);
+
+  // ─── Helpers ───
+  const isNameUnique = (name, excludeId = null) => {
+    const n = name.trim().toLowerCase();
+    return !n || !assets.some(a => a.computerName.toLowerCase() === n && a.id !== excludeId);
+  };
+  const findEmployee = (empNo) => employees.find(e => e.empNo.toUpperCase() === empNo.trim().toUpperCase());
+
+  // ─── Asset CRUD ───
+  const upsertAsset = (asset) => {
+    if (!asset.computerName.trim()) { notify("Computer name required", "error"); return false; }
+    const isEdit = assets.some(a => a.id === asset.id);
+    if (!isNameUnique(asset.computerName, isEdit ? asset.id : null)) {
+      notify(`"${asset.computerName}" already exists — names must be unique`, "error"); return false;
+    }
+    asset.lastModified = now();
+    asset.modifiedBy = currentUser || "local";
+    if (isEdit) { saveAssets(assets.map(a => a.id === asset.id ? asset : a)); notify("Asset updated"); }
+    else { asset.dateAdded = now(); saveAssets([...assets, asset]); notify("Asset added"); }
+    setView("assets"); setEditId(null); return true;
+  };
+  const deleteAsset = (id) => { saveAssets(assets.filter(a => a.id !== id)); notify("Asset deleted"); };
+
+  // ─── Employee CRUD ───
+  const upsertEmployee = (emp) => {
+    if (!emp.empNo.trim()) { notify("Emp No required", "error"); return false; }
+    const isEdit = employees.some(e => e.id === emp.id);
+    const dup = employees.find(e => e.empNo.toUpperCase() === emp.empNo.trim().toUpperCase() && e.id !== emp.id);
+    if (dup) { notify(`Emp No "${emp.empNo}" already exists`, "error"); return false; }
+    if (isEdit) { saveEmployees(employees.map(e => e.id === emp.id ? emp : e)); notify("Employee updated"); }
+    else { saveEmployees([...employees, emp]); notify("Employee added"); }
+    setView("employees"); setEditId(null); return true;
+  };
+  const deleteEmployee = (id) => { saveEmployees(employees.filter(e => e.id !== id)); notify("Employee deleted"); };
+
+  // ─── Sync ───
+  const apiCall = async (method, params = {}, body = null) => {
+    if (!settings.url) { notify("Set Apps Script URL in Settings first", "warn"); return null; }
+    const userTag = currentUser || "unknown";
+    try {
+      let url = settings.url;
+      if (method === "GET") { url += "?" + Object.entries({ ...params, user: userTag }).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&"); }
+      const opts = method === "GET" ? {} : { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ ...body, _user: userTag }) };
+      const r = await fetch(url, opts);
+      return await r.json();
+    } catch (e) { notify("Network error: " + e.message, "error"); return null; }
+  };
+
+  const pushAssets = async () => {
+    setSyncing(true);
+    const r = await apiCall("POST", {}, { action: "write", sheet: "Assets", data: assets });
+    if (r?.success) notify(`Pushed ${assets.length} assets to sheet`);
+    else if (r) notify("Push failed: " + (r.error || "Unknown"), "error");
+    setSyncing(false);
+  };
+
+  const pullAssets = async () => {
+    setSyncing(true);
+    const r = await apiCall("GET", { action: "read", sheet: "Assets" });
+    if (r?.success && r.data) {
+      const imported = r.data.map(row => ({
+        id: uid(), computerName: row["Computer Name"] || "", type: row["Type"] || "PC",
+        serialNumber: row["Serial Number"] || "", model: row["Model"] || "",
+        assignedTo: row["Assigned To"] || "", empNo: row["Emp No"] || "",
+        department: row["Department"] || "", location: row["Location"] || "",
+        status: row["Status"] || "Active", notes: row["Notes"] || "",
+        dateAdded: row["Date Added"] || now(), lastModified: now(),
+        modifiedBy: row["Modified By"] || "",
+      }));
+      const existing = new Set(assets.map(a => a.computerName.toLowerCase()));
+      const newOnes = imported.filter(a => a.computerName && !existing.has(a.computerName.toLowerCase()));
+      saveAssets([...assets, ...newOnes]);
+      notify(`Pulled ${newOnes.length} new assets (${imported.length - newOnes.length} skipped)`);
+    } else if (r) notify("Pull failed: " + (r.error || "No data"), "error");
+    setSyncing(false);
+  };
+
+  const pushEmployees = async () => {
+    setSyncing(true);
+    const r = await apiCall("POST", {}, { action: "write", sheet: "Employees", data: employees });
+    if (r?.success) notify(`Pushed ${employees.length} employees`);
+    else if (r) notify("Push failed", "error");
+    setSyncing(false);
+  };
+
+  const pullEmployees = async () => {
+    setSyncing(true);
+    const r = await apiCall("GET", { action: "read", sheet: "Employees" });
+    if (r?.success && r.data) {
+      const imported = r.data.map(row => ({
+        id: uid(), empNo: row["Emp No"] || "", fullName: row["Full Name"] || "",
+        department: row["Department"] || "", position: row["Position"] || "",
+        email: row["Email"] || "", phone: row["Phone"] || "",
+        location: row["Location"] || "", status: row["Status"] || "Active",
+        notes: row["Notes"] || "",
+      }));
+      const existing = new Set(employees.map(e => e.empNo.toUpperCase()));
+      const newOnes = imported.filter(e => e.empNo && !existing.has(e.empNo.toUpperCase()));
+      saveEmployees([...employees, ...newOnes]);
+      notify(`Pulled ${newOnes.length} new employees`);
+    }
+    setSyncing(false);
+  };
+
+  const lookupEmpRemote = async (empNo) => {
+    const r = await apiCall("GET", { action: "lookup_employee", empNo });
+    if (r?.success && r.employee) return r.employee;
+    if (r?.success && r.partial && r.matches?.length) return r.matches[0];
+    return null;
+  };
+
+  // ─── Audit Log ───
+  const fetchAuditLog = async () => {
+    if (!settings.url) { notify("Set Apps Script URL first", "warn"); return; }
+    setSyncing(true);
+    const r = await apiCall("GET", { action: "read_audit_log", limit: "100" });
+    if (r?.success && r.entries) {
+      setAuditLog(r.entries);
+      notify(`Loaded ${r.entries.length} log entries (${r.total} total)`);
+    } else if (r) notify("Failed to load audit log", "error");
+    setSyncing(false);
+  };
+
+  // ─── CSV Export ───
+  const exportCSV = () => {
+    const h = ["Computer Name","Type","Serial Number","Model","Assigned To","Emp No","Department","Location","Status","Notes","Date Added","Last Modified"];
+    const rows = assets.map(a => [a.computerName,a.type,a.serialNumber,a.model,a.assignedTo,a.empNo,a.department,a.location,a.status,a.notes,a.dateAdded,a.lastModified].map(v => `"${(v||"").replace(/"/g,'""')}"`).join(","));
+    const blob = new Blob([h.join(",") + "\n" + rows.join("\n")], { type: "text/csv" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `assets-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    notify("CSV exported");
+  };
+
+  // ─── Filtered ───
+  const filtered = assets.filter(a => {
+    const s = search.toLowerCase();
+    const match = !s || [a.computerName, a.serialNumber, a.model, a.assignedTo, a.empNo, a.department].some(f => (f||"").toLowerCase().includes(s));
+    return match && (filterType === "All" || a.type === filterType) && (filterStatus === "All" || a.status === filterStatus);
+  });
+
+  // ─── Styles ───
+  const S = {
+    wrap: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 },
+    hdr: { background: T.bg2, borderBottom: `1px solid ${T.border}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 },
+    nav: { display: "flex", gap: 2 },
+    navBtn: (a) => ({ padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: T.font, display: "flex", alignItems: "center", gap: 5, background: a ? T.accentDim : "transparent", color: a ? T.accent : T.textMid, transition: "all .15s" }),
+    main: { maxWidth: 1200, margin: "0 auto", padding: 16 },
+    bar: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center" },
+    searchBox: { flex: 1, minWidth: 180, display: "flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "7px 12px" },
+    inp: { background: "none", border: "none", color: T.text, flex: 1, fontSize: 13, fontFamily: T.font, outline: "none" },
+    sel: { background: T.card, border: `1px solid ${T.border}`, color: T.text, borderRadius: 8, padding: "7px 10px", fontSize: 12, fontFamily: T.font, cursor: "pointer", outline: "none" },
+    btn: (v = "pri") => ({ padding: "7px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: T.font, display: "inline-flex", alignItems: "center", gap: 5, transition: "all .15s", whiteSpace: "nowrap",
+      ...(v === "pri" && { background: T.accent, color: "#fff" }),
+      ...(v === "ghost" && { background: "none", color: T.textMid }),
+      ...(v === "out" && { background: "none", border: `1px solid ${T.border}`, color: T.text }),
+      ...(v === "red" && { background: T.redDim, color: T.red }),
+      ...(v === "green" && { background: T.greenDim, color: T.green }),
+      ...(v === "purple" && { background: T.purpleDim, color: T.purple }),
+    }),
+    card: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 20 },
+    fg: { marginBottom: 14 },
+    lbl: { display: "block", fontSize: 11, fontWeight: 600, color: T.textMid, marginBottom: 5, textTransform: "uppercase", letterSpacing: ".04em" },
+    fi: { width: "100%", padding: "9px 12px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" },
+    fiMono: { width: "100%", padding: "9px 12px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, color: T.accent, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box", letterSpacing: ".02em" },
+    badge: (c) => ({ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 600, background: c + "16", color: c }),
+    stat: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px", flex: 1, minWidth: 100 },
+    th: { padding: "9px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", color: T.textDim, borderBottom: `1px solid ${T.border}`, background: T.bg2, position: "sticky", top: 49, zIndex: 10 },
+    td: { padding: "10px 12px", borderBottom: `1px solid ${T.border}08`, fontSize: 12.5, verticalAlign: "middle" },
+  };
+  const stColor = (s) => ({ Active: T.green, Inactive: T.textDim, Maintenance: T.orange, Decommissioned: T.red, "On Leave": T.orange, Terminated: T.red }[s] || T.textMid);
+  const tIcon = (t) => ({ PC: "🖥️", MAC: "🍎", Laptop: "💻", Server: "🗄️", Monitor: "🖵", Printer: "🖨️", Other: "📦" }[t] || "📦");
+
+  // ═══════════════════════════════════════════
+  //  VIEWS
+  // ═══════════════════════════════════════════
+
+  // ─── ASSETS LIST ───
+  const AssetsView = () => (
+    <>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {[{ l: "Total", v: assets.length, c: T.accent }, { l: "Active", v: assets.filter(a => a.status === "Active").length, c: T.green }, { l: "Maint.", v: assets.filter(a => a.status === "Maintenance").length, c: T.orange }, { l: "Unassigned", v: assets.filter(a => !a.assignedTo).length, c: T.purple }, { l: "Emp Left", v: assets.filter(a => { if (!a.empNo) return false; const e = findEmployee(a.empNo); return e && e.status === "Terminated"; }).length, c: T.red }].map(s =>
+          <div key={s.l} style={S.stat}><div style={{ fontSize: 20, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: T.textDim, textTransform: "uppercase", letterSpacing: ".05em" }}>{s.l}</div></div>
+        )}
+      </div>
+      <div style={S.bar}>
+        <div style={S.searchBox}>
+          {I(ICO.search, 15)}
+          <input style={S.inp} placeholder="Search assets, names, serial#..." value={search} onChange={e => setSearch(e.target.value)} />
+          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer" }}>{I(ICO.x, 13)}</button>}
+        </div>
+        <select style={S.sel} value={filterType} onChange={e => setFilterType(e.target.value)}>
+          <option value="All">All Types</option>{ASSET_TYPES.map(t => <option key={t}>{t}</option>)}
+        </select>
+        <select style={S.sel} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+          <option value="All">All Status</option>{STATUSES.map(s => <option key={s}>{s}</option>)}
+        </select>
+        <button style={S.btn("pri")} onClick={() => { setEditId(null); setView("form"); }}>{I(ICO.plus, 15)} Add</button>
+        <button style={S.btn("out")} onClick={exportCSV}>{I(ICO.down, 15)} CSV</button>
+      </div>
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 50, color: T.textDim }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>📦</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{assets.length === 0 ? "No assets yet" : "No matches"}</div>
+          <div style={{ fontSize: 12, marginTop: 4 }}>{assets.length === 0 ? "Add your first asset or scan one with the camera" : "Try different search or filters"}</div>
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>
+              {["Computer Name", "Type", "Serial #", "Model", "Assigned To", "Emp #", "Dept", "Status", "Modified By", ""].map(h => <th key={h} style={S.th}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {filtered.map(a => (
+                <tr key={a.id} style={{ transition: "background .12s", cursor: "pointer" }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.cardHover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  onClick={() => { setEditId(a.id); setView("form"); }}>
+                  <td style={{ ...S.td, fontFamily: T.mono, fontWeight: 600, color: T.accent }}>{a.computerName}</td>
+                  <td style={S.td}>{tIcon(a.type)} {a.type}</td>
+                  <td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, color: T.textMid }}>{a.serialNumber || "—"}</td>
+                  <td style={S.td}>{a.model || "—"}</td>
+                  <td style={{ ...S.td, fontWeight: 500 }}>{a.assignedTo ? (() => {
+                    const emp = a.empNo ? findEmployee(a.empNo) : null;
+                    const empSt = emp?.status;
+                    return <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {a.assignedTo}
+                      {empSt && empSt !== "Active" && <span title={`Employee is ${empSt}`} style={{ display: "inline-block", padding: "1px 5px", borderRadius: 6, fontSize: 9, fontWeight: 700, background: empSt === "Terminated" ? T.redDim : T.orangeDim, color: empSt === "Terminated" ? T.red : T.orange }}>{empSt === "Terminated" ? "LEFT" : empSt === "On Leave" ? "LEAVE" : "INACTIVE"}</span>}
+                    </span>;
+                  })() : <span style={{ color: T.textDim }}>Unassigned</span>}</td>
+                  <td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, color: T.purple }}>{a.empNo || "—"}</td>
+                  <td style={{ ...S.td, color: T.textMid }}>{a.department || "—"}</td>
+                  <td style={S.td}><span style={S.badge(stColor(a.status))}>{a.status}</span></td>
+                  <td style={{ ...S.td, fontSize: 11, color: T.textDim, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={a.modifiedBy || ""}>{a.modifiedBy ? a.modifiedBy.split("@")[0] : "—"}</td>
+                  <td style={S.td} onClick={e => e.stopPropagation()}>
+                    <button style={S.btn("ghost")} onClick={() => { if (confirm(`Delete "${a.computerName}"?`)) deleteAsset(a.id); }}>{I(ICO.trash, 14)}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ marginTop: 8, fontSize: 11, color: T.textDim }}>Showing {filtered.length} of {assets.length}</div>
+    </>
+  );
+
+  // ─── EMPLOYEES LIST ───
+  const EmployeesView = () => {
+    const [empSearch, setEmpSearch] = useState("");
+    const filt = employees.filter(e => {
+      const s = empSearch.toLowerCase();
+      return !s || [e.empNo, e.fullName, e.department, e.position, e.email].some(f => (f||"").toLowerCase().includes(s));
+    });
+    return <>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {[{ l: "Total", v: employees.length, c: T.accent }, { l: "Active", v: employees.filter(e => e.status === "Active").length, c: T.green }, { l: "Depts", v: [...new Set(employees.map(e => e.department).filter(Boolean))].length, c: T.purple }].map(s =>
+          <div key={s.l} style={S.stat}><div style={{ fontSize: 20, fontWeight: 700, color: s.c }}>{s.v}</div><div style={{ fontSize: 10, color: T.textDim, textTransform: "uppercase" }}>{s.l}</div></div>
+        )}
+      </div>
+      <div style={S.bar}>
+        <div style={S.searchBox}>
+          {I(ICO.search, 15)}
+          <input style={S.inp} placeholder="Search employees..." value={empSearch} onChange={e => setEmpSearch(e.target.value)} />
+        </div>
+        <button style={S.btn("pri")} onClick={() => { setEditId(null); setView("empForm"); }}>{I(ICO.plus, 15)} Add Employee</button>
+      </div>
+      {filt.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 50, color: T.textDim }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>👥</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>No employees{empSearch ? " match" : " yet"}</div>
+          <div style={{ fontSize: 12, marginTop: 4 }}>Add employees or pull from Google Sheets</div>
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr>
+              {["Emp No", "Full Name", "Department", "Position", "Email", "Location", "Status", ""].map(h => <th key={h} style={S.th}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {filt.map(e => (
+                <tr key={e.id} style={{ transition: "background .12s", cursor: "pointer" }}
+                  onMouseEnter={ev => ev.currentTarget.style.background = T.cardHover}
+                  onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}
+                  onClick={() => { setEditId(e.id); setView("empForm"); }}>
+                  <td style={{ ...S.td, fontFamily: T.mono, fontWeight: 600, color: T.purple }}>{e.empNo}</td>
+                  <td style={{ ...S.td, fontWeight: 500 }}>{e.fullName}</td>
+                  <td style={S.td}>{e.department || "—"}</td>
+                  <td style={S.td}>{e.position || "—"}</td>
+                  <td style={{ ...S.td, fontSize: 11, color: T.textMid }}>{e.email || "—"}</td>
+                  <td style={S.td}>{e.location || "—"}</td>
+                  <td style={S.td}><span style={S.badge(stColor(e.status))}>{e.status}</span></td>
+                  <td style={S.td} onClick={ev => ev.stopPropagation()}>
+                    <button style={S.btn("ghost")} onClick={() => { if (confirm(`Delete "${e.fullName}"?`)) deleteEmployee(e.id); }}>{I(ICO.trash, 14)}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>;
+  };
+
+  // ─── ASSET FORM ───
+  const AssetForm = () => {
+    const existing = editId ? assets.find(a => a.id === editId) : null;
+    const [f, sf] = useState(existing ? { ...existing } : emptyAsset());
+    const [nameErr, setNameErr] = useState("");
+    const [empLookupBusy, setEmpLookupBusy] = useState(false);
+    const [empStatus, setEmpStatus] = useState(null); // { status, fullName } after lookup
+
+    const handleName = (v) => { sf({ ...f, computerName: v }); setNameErr(v.trim() && !isNameUnique(v, editId) ? "Name already exists!" : ""); };
+
+    // On load, check if existing asset has an employee assigned
+    useEffect(() => {
+      if (existing?.empNo) {
+        const local = findEmployee(existing.empNo);
+        if (local) setEmpStatus({ status: local.status, fullName: local.fullName });
+      }
+    }, []);
+
+    const lookupEmp = async (empNo) => {
+      if (!empNo.trim()) return;
+      setEmpStatus(null);
+      // Local first
+      const local = findEmployee(empNo);
+      if (local) {
+        sf(prev => ({ ...prev, empNo: local.empNo, assignedTo: local.fullName, department: local.department, location: local.location || prev.location }));
+        setEmpStatus({ status: local.status, fullName: local.fullName });
+        if (local.status !== "Active") notify(`⚠ ${local.fullName} is ${local.status}`, "warn");
+        else notify(`Found: ${local.fullName}`);
+        return;
+      }
+      // Remote
+      if (settings.url) {
+        setEmpLookupBusy(true);
+        const remote = await lookupEmpRemote(empNo);
+        setEmpLookupBusy(false);
+        if (remote) {
+          const rStatus = remote["Status"] || "Active";
+          const rName = remote["Full Name"] || "";
+          sf(prev => ({ ...prev, empNo: remote["Emp No"] || empNo, assignedTo: rName, department: remote["Department"] || prev.department, location: remote["Location"] || prev.location }));
+          setEmpStatus({ status: rStatus, fullName: rName });
+          if (rStatus !== "Active") notify(`⚠ ${rName} is ${rStatus}`, "warn");
+          else notify(`Found: ${rName}`);
+          return;
+        }
+      }
+      notify(`Emp "${empNo}" not found locally${settings.url ? " or in sheet" : ""}`, "warn");
+    };
+
+    return (
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{editId ? "Edit Asset" : "Add Asset"}</h2>
+          <button style={S.btn("ghost")} onClick={() => { setView("assets"); setEditId(null); }}>{I(ICO.x, 16)} Cancel</button>
+        </div>
+        <form onSubmit={e => { e.preventDefault(); if (!nameErr) upsertAsset(f); }} style={S.card}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+            <div style={{ ...S.fg, gridColumn: "1/-1" }}>
+              <label style={S.lbl}>Computer Name *</label>
+              <input style={{ ...S.fiMono, borderColor: nameErr ? T.red : T.border }} value={f.computerName} onChange={e => handleName(e.target.value)} placeholder="e.g. WS-IT-001" required />
+              {nameErr && <div style={{ color: T.red, fontSize: 11, marginTop: 3 }}>⚠ {nameErr}</div>}
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Type</label>
+              <select style={{ ...S.fi, cursor: "pointer" }} value={f.type} onChange={e => sf({ ...f, type: e.target.value })}>{ASSET_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Status</label>
+              <select style={{ ...S.fi, cursor: "pointer" }} value={f.status} onChange={e => sf({ ...f, status: e.target.value })}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Serial Number</label>
+              <input style={S.fiMono} value={f.serialNumber} onChange={e => sf({ ...f, serialNumber: e.target.value })} placeholder="SN-12345" />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Model</label>
+              <input style={S.fi} value={f.model} onChange={e => sf({ ...f, model: e.target.value })} placeholder="Dell Latitude 5540" />
+            </div>
+
+            {/* Employee Assignment Section */}
+            <div style={{ gridColumn: "1/-1", background: T.purpleDim, border: `1px solid ${T.purple}30`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.purple, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>{I(ICO.badge, 15)} ASSIGN EMPLOYEE</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginBottom: 10 }}>
+                <div>
+                  <label style={S.lbl}>Emp No</label>
+                  <input style={S.fiMono} value={f.empNo} onChange={e => sf({ ...f, empNo: e.target.value })} placeholder="EMP001"
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); lookupEmp(f.empNo); } }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  <button type="button" style={{ ...S.btn("purple"), padding: "9px 14px" }} onClick={() => lookupEmp(f.empNo)} disabled={empLookupBusy}>
+                    {empLookupBusy ? "..." : <>{I(ICO.search, 14)} Lookup</>}
+                  </button>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+                <div style={S.fg}>
+                  <label style={S.lbl}>Assigned To</label>
+                  <input style={S.fi} value={f.assignedTo} onChange={e => sf({ ...f, assignedTo: e.target.value })} placeholder="Full Name" />
+                </div>
+                <div style={S.fg}>
+                  <label style={S.lbl}>Department</label>
+                  <input style={S.fi} value={f.department} onChange={e => sf({ ...f, department: e.target.value })} placeholder="Engineering" />
+                </div>
+              </div>
+              <div style={S.fg}>
+                <label style={S.lbl}>Location</label>
+                <input style={S.fi} value={f.location} onChange={e => sf({ ...f, location: e.target.value })} placeholder="Floor 3, Bldg A" />
+              </div>
+              <div style={{ fontSize: 11, color: T.textDim }}>Type Emp No and press Enter or click Lookup to auto-fill. Or use the Scanner to scan a badge.</div>
+              {empStatus && empStatus.status !== "Active" && (
+                <div style={{ marginTop: 10, padding: "10px 14px", background: empStatus.status === "Terminated" ? T.redDim : T.orangeDim, border: `1px solid ${empStatus.status === "Terminated" ? T.red : T.orange}35`, borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>{empStatus.status === "Terminated" ? "🚫" : empStatus.status === "On Leave" ? "🏖️" : "⚠️"}</span>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: empStatus.status === "Terminated" ? T.red : T.orange }}>
+                      {empStatus.fullName} — {empStatus.status.toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.textMid }}>
+                      {empStatus.status === "Terminated" ? "This employee has left the company. Are you sure you want to assign this device?" : empStatus.status === "On Leave" ? "This employee is currently on leave." : "This employee is currently inactive."}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {empStatus && empStatus.status === "Active" && (
+                <div style={{ marginTop: 10, padding: "8px 12px", background: T.greenDim, border: `1px solid ${T.green}25`, borderRadius: 8, fontSize: 12, color: T.green, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                  ✓ {empStatus.fullName} — Active
+                </div>
+              )}
+            </div>
+
+            <div style={{ ...S.fg, gridColumn: "1/-1" }}>
+              <label style={S.lbl}>Notes</label>
+              <textarea style={{ ...S.fi, minHeight: 50, resize: "vertical" }} value={f.notes} onChange={e => sf({ ...f, notes: e.target.value })} />
+            </div>
+            {editId && (f.modifiedBy || f.lastModified) && (
+              <div style={{ gridColumn: "1/-1", display: "flex", gap: 16, padding: "10px 14px", background: T.bg, borderRadius: 8, fontSize: 11, color: T.textDim, flexWrap: "wrap" }}>
+                {f.modifiedBy && <span>Last modified by <strong style={{ color: T.textMid }}>{f.modifiedBy}</strong></span>}
+                {f.lastModified && <span>on {f.lastModified}</span>}
+                {f.dateAdded && <span>· Created {f.dateAdded}</span>}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+            <button type="button" style={S.btn("out")} onClick={() => { setView("assets"); setEditId(null); }}>Cancel</button>
+            <button type="submit" style={{ ...S.btn("pri"), padding: "9px 20px" }}>{I(ICO.check, 15)} {editId ? "Update" : "Add Asset"}</button>
+          </div>
+        </form>
+      </div>
+    );
+  };
+
+  // ─── EMPLOYEE FORM ───
+  const EmpForm = () => {
+    const existing = editId ? employees.find(e => e.id === editId) : null;
+    const [f, sf] = useState(existing ? { ...existing } : emptyEmployee());
+    const assigned = assets.filter(a => a.empNo && a.empNo.toUpperCase() === f.empNo.toUpperCase());
+    return (
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{editId ? "Edit Employee" : "Add Employee"}</h2>
+          <button style={S.btn("ghost")} onClick={() => { setView("employees"); setEditId(null); }}>{I(ICO.x, 16)} Cancel</button>
+        </div>
+        <form onSubmit={e => { e.preventDefault(); upsertEmployee(f); }} style={S.card}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 14px" }}>
+            <div style={S.fg}>
+              <label style={S.lbl}>Emp No *</label>
+              <input style={S.fiMono} value={f.empNo} onChange={e => sf({ ...f, empNo: e.target.value })} placeholder="EMP001" required />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Full Name *</label>
+              <input style={S.fi} value={f.fullName} onChange={e => sf({ ...f, fullName: e.target.value })} placeholder="John Smith" required />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Department</label>
+              <input style={S.fi} value={f.department} onChange={e => sf({ ...f, department: e.target.value })} />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Position</label>
+              <input style={S.fi} value={f.position} onChange={e => sf({ ...f, position: e.target.value })} />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Email</label>
+              <input style={S.fi} type="email" value={f.email} onChange={e => sf({ ...f, email: e.target.value })} />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Phone</label>
+              <input style={S.fi} value={f.phone} onChange={e => sf({ ...f, phone: e.target.value })} />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Location</label>
+              <input style={S.fi} value={f.location} onChange={e => sf({ ...f, location: e.target.value })} />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Status</label>
+              <select style={{ ...S.fi, cursor: "pointer" }} value={f.status} onChange={e => sf({ ...f, status: e.target.value })}>{EMP_STATUSES.map(s => <option key={s}>{s}</option>)}</select>
+            </div>
+            <div style={{ ...S.fg, gridColumn: "1/-1" }}>
+              <label style={S.lbl}>Notes</label>
+              <textarea style={{ ...S.fi, minHeight: 50, resize: "vertical" }} value={f.notes} onChange={e => sf({ ...f, notes: e.target.value })} />
+            </div>
+          </div>
+          {editId && assigned.length > 0 && (
+            <div style={{ background: T.accentDim, border: `1px solid ${T.accent}30`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, marginBottom: 6 }}>ASSIGNED DEVICES ({assigned.length})</div>
+              {assigned.map(a => <div key={a.id} style={{ fontSize: 12, fontFamily: T.mono, color: T.text }}>{tIcon(a.type)} {a.computerName} — {a.model || a.type}</div>)}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button type="button" style={S.btn("out")} onClick={() => { setView("employees"); setEditId(null); }}>Cancel</button>
+            <button type="submit" style={{ ...S.btn("pri"), padding: "9px 20px" }}>{I(ICO.check, 15)} {editId ? "Update" : "Add Employee"}</button>
+          </div>
+        </form>
+      </div>
+    );
+  };
+
+  // ─── SCANNER VIEW ───
+  const ScanView = () => {
+    const videoRef = useRef(null);
+    const canvasRef = useRef(null);
+    const streamRef = useRef(null);
+    const [camOn, setCamOn] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [ocrText, setOcrText] = useState("");
+    const [parsedRows, setParsedRows] = useState([]);
+    const [scannedEmp, setScannedEmp] = useState(null);
+    const [quickForm, setQuickForm] = useState(emptyAsset());
+    const [nameErr, setNameErr] = useState("");
+
+    const startCam = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 } } });
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+        setCamOn(true);
+      } catch { notify("Camera access denied", "error"); }
+    };
+    const stopCam = () => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } setCamOn(false); };
+
+    useEffect(() => () => stopCam(), []);
+
+    const capture = () => {
+      const v = videoRef.current, c = canvasRef.current;
+      if (!v || !c) return null;
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext("2d").drawImage(v, 0, 0);
+      return c.toDataURL("image/png");
+    };
+
+    const doOCR = async (img) => {
+      if (!window.Tesseract) { notify("OCR not loaded", "error"); return ""; }
+      setBusy(true); setProgress(0);
+      try {
+        const r = await window.Tesseract.recognize(img, "eng", { logger: m => { if (m.status === "recognizing text") setProgress(Math.round(m.progress * 100)); } });
+        setBusy(false); return r.data.text;
+      } catch (e) { setBusy(false); notify("OCR failed", "error"); return ""; }
+    };
+
+    const handleScan = async () => {
+      const img = capture(); if (!img) return;
+      const text = await doOCR(img);
+      setOcrText(text);
+
+      if (scanTarget === "empId") {
+        // Extract emp ID from scanned text
+        const cleaned = text.replace(/[^a-zA-Z0-9\-_.\s]/g, "").trim();
+        const lines = cleaned.split("\n").map(l => l.trim()).filter(Boolean);
+        // Try to find an ID pattern (alphanumeric, common patterns like EMP-001, ID12345, etc.)
+        const idPattern = /\b([A-Z]{2,5}[-_]?\d{2,8})\b/i;
+        let foundId = "";
+        for (const line of lines) {
+          const m = line.match(idPattern);
+          if (m) { foundId = m[1].toUpperCase(); break; }
+        }
+        if (!foundId && lines.length) foundId = lines[0].replace(/\s+/g, "").substring(0, 20);
+
+        if (foundId) {
+          // Lookup employee
+          const local = findEmployee(foundId);
+          if (local) {
+            setScannedEmp({ ...local });
+            setQuickForm(prev => ({ ...prev, empNo: local.empNo, assignedTo: local.fullName, department: local.department, location: local.location || "" }));
+            if (local.status !== "Active") notify(`⚠ ${local.fullName} is ${local.status}`, "warn");
+            else notify(`Found: ${local.fullName}`);
+          } else if (settings.url) {
+            const remote = await lookupEmpRemote(foundId);
+            if (remote) {
+              const emp = { empNo: remote["Emp No"] || foundId, fullName: remote["Full Name"] || "", department: remote["Department"] || "", position: remote["Position"] || "", location: remote["Location"] || "", status: remote["Status"] || "Active" };
+              setScannedEmp(emp);
+              setQuickForm(prev => ({ ...prev, ...emp, assignedTo: emp.fullName }));
+              if (emp.status !== "Active") notify(`⚠ ${emp.fullName} is ${emp.status}`, "warn");
+              else notify(`Found: ${emp.fullName}`);
+            } else {
+              setScannedEmp(null);
+              setQuickForm(prev => ({ ...prev, empNo: foundId }));
+              notify(`Scanned ID: ${foundId} — not found in directory`, "warn");
+            }
+          } else {
+            setQuickForm(prev => ({ ...prev, empNo: foundId }));
+            notify(`Scanned ID: ${foundId}`, "warn");
+          }
+        }
+      } else if (scanTarget === "sheet") {
+        const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 3);
+        const rows = lines.map(line => {
+          const parts = line.split(/[|\t,;]+/).map(p => p.trim()).filter(Boolean);
+          if (parts.length >= 2) {
+            return { id: uid(), computerName: parts[0], type: guessType(parts[1] || ""), serialNumber: parts[2] || "", model: parts[3] || "", assignedTo: parts[4] || "", empNo: parts[5] || "", department: parts[6] || "", location: "", status: "Active", notes: "OCR import", dateAdded: now(), lastModified: now() };
+          }
+          return null;
+        }).filter(Boolean);
+        setParsedRows(rows);
+      } else {
+        // Single device scan
+        const lines = text.split("\n").filter(l => l.trim());
+        const cleaned = lines[0]?.trim().replace(/[^a-zA-Z0-9\-_.\s]/g, "") || "";
+        if (cleaned) {
+          setQuickForm(prev => ({ ...prev, computerName: cleaned }));
+          setNameErr(isNameUnique(cleaned) ? "" : "Name already exists!");
+        }
+      }
+    };
+
+    const guessType = (s) => {
+      const l = s.toLowerCase();
+      if (l.includes("mac") || l.includes("apple")) return "MAC";
+      if (l.includes("laptop") || l.includes("book")) return "Laptop";
+      if (l.includes("server")) return "Server";
+      if (l.includes("monitor")) return "Monitor";
+      if (l.includes("printer")) return "Printer";
+      return "PC";
+    };
+
+    const importRows = () => {
+      let added = 0, skip = 0;
+      const next = [...assets];
+      parsedRows.forEach(r => { if (r.computerName && isNameUnique(r.computerName)) { next.push(r); added++; } else skip++; });
+      saveAssets(next);
+      notify(`Imported ${added}${skip ? `, skipped ${skip} duplicates` : ""}`);
+      setParsedRows([]); setOcrText("");
+    };
+
+    const addFromScan = () => {
+      if (!quickForm.computerName.trim()) { notify("Computer name required", "error"); return; }
+      if (nameErr) { notify("Name must be unique!", "error"); return; }
+      upsertAsset(quickForm);
+      setQuickForm(emptyAsset()); setOcrText(""); setScannedEmp(null);
+    };
+
+    return (
+      <div style={{ maxWidth: 700, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📷 Scanner</h2>
+          <button style={S.btn("ghost")} onClick={() => { stopCam(); setView("assets"); }}>{I(ICO.x, 16)} Close</button>
+        </div>
+
+        {/* Mode selector */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          {[
+            { m: "device", label: "Device Label", icon: ICO.pc },
+            { m: "empId", label: "Employee Badge", icon: ICO.badge },
+            { m: "sheet", label: "Spreadsheet", icon: ICO.list },
+          ].map(({ m, label, icon }) => (
+            <button key={m} style={{ ...S.btn(scanTarget === m ? "pri" : "out"), flex: 1, justifyContent: "center", padding: "10px 12px" }}
+              onClick={() => setScanTarget(m)}>{I(icon, 15)} {label}</button>
+          ))}
+        </div>
+
+        <div style={S.card}>
+          {/* Camera */}
+          <div style={{ position: "relative", background: "#000", borderRadius: 8, overflow: "hidden", marginBottom: 14, aspectRatio: "16/10" }}>
+            <video ref={videoRef} style={{ width: "100%", height: "100%", objectFit: "cover", display: camOn ? "block" : "none" }} playsInline autoPlay muted />
+            {!camOn && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.textDim }}>
+                {I(ICO.cam, 44)}
+                <div style={{ marginTop: 10, fontSize: 13 }}>
+                  {scanTarget === "empId" ? "Point at employee badge / ID card" : scanTarget === "sheet" ? "Point at printed spreadsheet" : "Point at device label / sticker"}
+                </div>
+                <button style={{ ...S.btn("pri"), marginTop: 14, padding: "10px 24px" }} onClick={startCam}>Start Camera</button>
+              </div>
+            )}
+            {busy && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.75)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 180, height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ width: `${progress}%`, height: "100%", background: T.accent, borderRadius: 3, transition: "width .2s" }} />
+                </div>
+                <div style={{ color: T.textMid, fontSize: 12, marginTop: 6 }}>Reading... {progress}%</div>
+              </div>
+            )}
+            {/* Scan guide overlay */}
+            {camOn && !busy && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                <div style={{ border: `2px dashed ${scanTarget === "empId" ? T.purple : T.accent}50`, borderRadius: 8, width: scanTarget === "sheet" ? "85%" : "70%", height: scanTarget === "sheet" ? "80%" : "40%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ color: "#fff", fontSize: 11, background: "rgba(0,0,0,.5)", padding: "3px 10px", borderRadius: 4 }}>
+                    {scanTarget === "empId" ? "Align badge here" : scanTarget === "sheet" ? "Align spreadsheet" : "Align device label"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+
+          {camOn && (
+            <button style={{ ...S.btn(scanTarget === "empId" ? "purple" : "pri"), width: "100%", justifyContent: "center", padding: 11, marginBottom: 14 }}
+              onClick={handleScan} disabled={busy}>
+              {I(ICO.cam, 16)} {scanTarget === "empId" ? "Scan Badge" : scanTarget === "sheet" ? "Capture Spreadsheet" : "Capture Label"}
+            </button>
+          )}
+
+          {!ocrReady && <div style={{ padding: 10, background: T.orangeDim, borderRadius: 8, fontSize: 12, color: T.orange, marginBottom: 12 }}>⏳ OCR engine loading...</div>}
+
+          {/* OCR Result */}
+          {ocrText && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={S.lbl}>OCR Result</label>
+              <pre style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, fontSize: 11, fontFamily: T.mono, color: T.textMid, whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto" }}>{ocrText}</pre>
+            </div>
+          )}
+
+          {/* Scanned Employee Info */}
+          {scanTarget === "empId" && scannedEmp && (
+            <div style={{ background: scannedEmp.status === "Active" ? T.greenDim : scannedEmp.status === "Terminated" ? T.redDim : T.orangeDim, border: `1px solid ${scannedEmp.status === "Active" ? T.green : scannedEmp.status === "Terminated" ? T.red : T.orange}30`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: scannedEmp.status === "Active" ? T.green : scannedEmp.status === "Terminated" ? T.red : T.orange, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                {scannedEmp.status === "Active" ? "✓ EMPLOYEE FOUND" : scannedEmp.status === "Terminated" ? "🚫 EMPLOYEE TERMINATED" : `⚠ EMPLOYEE — ${scannedEmp.status.toUpperCase()}`}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
+                <div><span style={{ color: T.textDim }}>Emp No:</span> <strong style={{ fontFamily: T.mono, color: T.purple }}>{scannedEmp.empNo}</strong></div>
+                <div><span style={{ color: T.textDim }}>Name:</span> <strong>{scannedEmp.fullName}</strong></div>
+                <div><span style={{ color: T.textDim }}>Dept:</span> {scannedEmp.department || "—"}</div>
+                <div><span style={{ color: T.textDim }}>Status:</span> <span style={S.badge(stColor(scannedEmp.status || "Active"))}>{scannedEmp.status || "Active"}</span></div>
+              </div>
+              {scannedEmp.status === "Terminated" && (
+                <div style={{ marginTop: 8, fontSize: 11, color: T.red, fontWeight: 500 }}>
+                  ⚠ This employee has left the company. Assigning a device to them may be an error.
+                </div>
+              )}
+              {scannedEmp.status === "On Leave" && (
+                <div style={{ marginTop: 8, fontSize: 11, color: T.orange, fontWeight: 500 }}>
+                  ℹ This employee is currently on leave.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick-add form for device + empId scans */}
+          {(scanTarget === "device" || scanTarget === "empId") && ocrText && (
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{I(ICO.zap, 15)} Quick Add Asset</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+                <div style={S.fg}>
+                  <label style={S.lbl}>Computer Name *</label>
+                  <input style={{ ...S.fiMono, borderColor: nameErr ? T.red : T.border }} value={quickForm.computerName}
+                    onChange={e => { setQuickForm({ ...quickForm, computerName: e.target.value }); setNameErr(isNameUnique(e.target.value) ? "" : "Exists!"); }} />
+                  {nameErr && <div style={{ color: T.red, fontSize: 10, marginTop: 2 }}>⚠ {nameErr}</div>}
+                </div>
+                <div style={S.fg}>
+                  <label style={S.lbl}>Type</label>
+                  <select style={{ ...S.fi, cursor: "pointer" }} value={quickForm.type} onChange={e => setQuickForm({ ...quickForm, type: e.target.value })}>{ASSET_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+                </div>
+                <div style={S.fg}>
+                  <label style={S.lbl}>Serial #</label>
+                  <input style={S.fiMono} value={quickForm.serialNumber} onChange={e => setQuickForm({ ...quickForm, serialNumber: e.target.value })} />
+                </div>
+                <div style={S.fg}>
+                  <label style={S.lbl}>Emp No</label>
+                  <input style={{ ...S.fiMono, color: T.purple }} value={quickForm.empNo} onChange={e => setQuickForm({ ...quickForm, empNo: e.target.value })} />
+                </div>
+                <div style={S.fg}>
+                  <label style={S.lbl}>Assigned To</label>
+                  <input style={S.fi} value={quickForm.assignedTo} onChange={e => setQuickForm({ ...quickForm, assignedTo: e.target.value })} />
+                </div>
+                <div style={S.fg}>
+                  <label style={S.lbl}>Department</label>
+                  <input style={S.fi} value={quickForm.department} onChange={e => setQuickForm({ ...quickForm, department: e.target.value })} />
+                </div>
+              </div>
+              <button style={{ ...S.btn("green"), width: "100%", justifyContent: "center", padding: 11 }} onClick={addFromScan}>
+                {I(ICO.check, 15)} Add Asset
+              </button>
+            </div>
+          )}
+
+          {/* Sheet import */}
+          {scanTarget === "sheet" && parsedRows.length > 0 && (
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Parsed {parsedRows.length} rows</h3>
+                <button style={S.btn("green")} onClick={importRows}>{I(ICO.up, 14)} Import Valid</button>
+              </div>
+              <div style={{ maxHeight: 180, overflow: "auto" }}>
+                {parsedRows.map((r, i) => {
+                  const dup = !isNameUnique(r.computerName);
+                  return <div key={i} style={{ padding: "6px 10px", borderRadius: 6, marginBottom: 3, fontSize: 11, background: dup ? T.redDim : T.bg, border: `1px solid ${dup ? T.red + "30" : T.border}`, display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontFamily: T.mono, fontWeight: 600 }}>{r.computerName || "(empty)"}</span>
+                    <span style={{ color: T.textDim }}>{r.type} · {r.assignedTo || "—"}</span>
+                    {dup && <span style={{ color: T.red, fontWeight: 600 }}>DUP</span>}
+                  </div>;
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ─── REPORTS VIEW ───
+  const ReportsView = () => {
+    const [report, setReport] = useState(null); // null = picker, otherwise report type
+    const [reportTitle, setReportTitle] = useState("");
+    const printRef = useRef(null);
+
+    const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    const pS = { // print styles
+      page: { background: "#fff", color: "#111", fontFamily: "'DM Sans', Arial, sans-serif", padding: 24, borderRadius: 10, border: `1px solid ${T.border}` },
+      h1: { fontSize: 20, fontWeight: 700, marginBottom: 2, color: "#111" },
+      sub: { fontSize: 11, color: "#666", marginBottom: 16 },
+      section: { fontSize: 14, fontWeight: 700, margin: "18px 0 8px", padding: "6px 0", borderBottom: "2px solid #333", color: "#111" },
+      table: { width: "100%", borderCollapse: "collapse", fontSize: 11, marginBottom: 16 },
+      th: { padding: "7px 8px", textAlign: "left", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", borderBottom: "2px solid #333", background: "#f5f5f5", color: "#333" },
+      td: { padding: "6px 8px", borderBottom: "1px solid #e0e0e0", fontSize: 11 },
+      tdMono: { padding: "6px 8px", borderBottom: "1px solid #e0e0e0", fontSize: 10, fontFamily: "'JetBrains Mono', monospace" },
+      badge: (active) => ({ padding: "1px 6px", borderRadius: 8, fontSize: 9, fontWeight: 600, background: active ? "#e8f5e9" : "#ffebee", color: active ? "#2e7d32" : "#c62828" }),
+      stat: { display: "inline-block", textAlign: "center", padding: "10px 20px", marginRight: 12, marginBottom: 8, background: "#f5f5f5", borderRadius: 8 },
+      statNum: { fontSize: 22, fontWeight: 700, color: "#111" },
+      statLabel: { fontSize: 9, textTransform: "uppercase", color: "#666", letterSpacing: ".04em" },
+      footer: { marginTop: 20, paddingTop: 10, borderTop: "1px solid #ddd", fontSize: 9, color: "#999", display: "flex", justifyContent: "space-between" },
+    };
+
+    const doPrint = () => {
+      const content = printRef.current;
+      if (!content) return;
+      const win = window.open("", "_blank");
+      win.document.write(`<!DOCTYPE html><html><head><title>${reportTitle}</title>
+        <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+        <style>
+          * { box-sizing: border-box; margin: 0; }
+          body { font-family: 'DM Sans', Arial, sans-serif; padding: 20px; color: #111; }
+          @media print {
+            body { padding: 0; }
+            @page { margin: 15mm; size: landscape; }
+            .no-print { display: none !important; }
+          }
+        </style></head><body>${content.innerHTML}
+        <script>setTimeout(()=>{window.print();},500);<\/script></body></html>`);
+      win.document.close();
+    };
+
+    // ─── Report generators ───
+    const byDept = {};
+    assets.forEach(a => { const d = a.department || "Unassigned"; if (!byDept[d]) byDept[d] = []; byDept[d].push(a); });
+    const byType = {};
+    assets.forEach(a => { if (!byType[a.type]) byType[a.type] = []; byType[a.type].push(a); });
+    const byStatus = {};
+    assets.forEach(a => { if (!byStatus[a.status]) byStatus[a.status] = []; byStatus[a.status].push(a); });
+    const unassigned = assets.filter(a => !a.assignedTo);
+    const terminated = assets.filter(a => { if (!a.empNo) return false; const e = findEmployee(a.empNo); return e && (e.status === "Terminated" || e.status === "Inactive"); });
+    const byEmp = {};
+    assets.filter(a => a.assignedTo).forEach(a => { const k = a.assignedTo; if (!byEmp[k]) byEmp[k] = []; byEmp[k].push(a); });
+
+    const AssetRow = ({ a, showDept = true, showAssigned = true }) => (
+      <tr>
+        <td style={pS.tdMono}>{a.computerName}</td>
+        <td style={pS.td}>{a.type}</td>
+        <td style={pS.tdMono}>{a.serialNumber || "—"}</td>
+        <td style={pS.td}>{a.model || "—"}</td>
+        {showAssigned && <td style={pS.td}>{a.assignedTo || "—"}</td>}
+        {showAssigned && <td style={pS.tdMono}>{a.empNo || "—"}</td>}
+        {showDept && <td style={pS.td}>{a.department || "—"}</td>}
+        <td style={pS.td}><span style={pS.badge(a.status === "Active")}>{a.status}</span></td>
+      </tr>
+    );
+    const AssetTableHead = ({ showDept = true, showAssigned = true }) => (
+      <thead><tr>
+        <th style={pS.th}>Computer Name</th><th style={pS.th}>Type</th>
+        <th style={pS.th}>Serial #</th><th style={pS.th}>Model</th>
+        {showAssigned && <th style={pS.th}>Assigned To</th>}
+        {showAssigned && <th style={pS.th}>Emp #</th>}
+        {showDept && <th style={pS.th}>Dept</th>}
+        <th style={pS.th}>Status</th>
+      </tr></thead>
+    );
+    const Footer = () => (
+      <div style={pS.footer}>
+        <span>Generated {today} {currentUser ? `by ${currentUser}` : ""}</span>
+        <span>by: MJE</span>
+      </div>
+    );
+
+    // ─── Full Inventory ───
+    const FullInventory = () => { setReportTitle("Full Asset Inventory"); return (
+      <div style={pS.page} ref={printRef}>
+        <h1 style={pS.h1}>📦 Full Asset Inventory</h1>
+        <div style={pS.sub}>{today} · {assets.length} assets</div>
+        <div style={{ marginBottom: 16 }}>
+          {[{ l: "Total", v: assets.length }, { l: "Active", v: assets.filter(a => a.status === "Active").length }, { l: "Maintenance", v: assets.filter(a => a.status === "Maintenance").length }, { l: "Decommissioned", v: assets.filter(a => a.status === "Decommissioned").length }, { l: "Unassigned", v: unassigned.length }].map(s => (
+            <div key={s.l} style={pS.stat}><div style={pS.statNum}>{s.v}</div><div style={pS.statLabel}>{s.l}</div></div>
+          ))}
+        </div>
+        <table style={pS.table}><AssetTableHead /><tbody>{assets.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
+        <Footer />
+      </div>
+    );};
+
+    // ─── By Department ───
+    const ByDepartment = () => { setReportTitle("Assets by Department"); return (
+      <div style={pS.page} ref={printRef}>
+        <h1 style={pS.h1}>🏢 Assets by Department</h1>
+        <div style={pS.sub}>{today} · {Object.keys(byDept).length} departments · {assets.length} assets</div>
+        {Object.entries(byDept).sort((a, b) => b[1].length - a[1].length).map(([dept, items]) => (
+          <div key={dept}>
+            <div style={pS.section}>{dept} <span style={{ fontWeight: 400, fontSize: 12, color: "#666" }}>({items.length})</span></div>
+            <table style={pS.table}><AssetTableHead showDept={false} /><tbody>{items.map(a => <AssetRow key={a.id} a={a} showDept={false} />)}</tbody></table>
+          </div>
+        ))}
+        <Footer />
+      </div>
+    );};
+
+    // ─── By Type ───
+    const ByTypeReport = () => { setReportTitle("Assets by Type"); return (
+      <div style={pS.page} ref={printRef}>
+        <h1 style={pS.h1}>🖥️ Assets by Type</h1>
+        <div style={pS.sub}>{today}</div>
+        <div style={{ marginBottom: 16 }}>
+          {Object.entries(byType).map(([t, items]) => (
+            <div key={t} style={pS.stat}><div style={pS.statNum}>{items.length}</div><div style={pS.statLabel}>{t}</div></div>
+          ))}
+        </div>
+        {Object.entries(byType).map(([type, items]) => (
+          <div key={type}>
+            <div style={pS.section}>{type} <span style={{ fontWeight: 400, fontSize: 12, color: "#666" }}>({items.length})</span></div>
+            <table style={pS.table}><AssetTableHead /><tbody>{items.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
+          </div>
+        ))}
+        <Footer />
+      </div>
+    );};
+
+    // ─── Employee Assignments ───
+    const EmpAssignments = () => { setReportTitle("Employee Device Assignments"); return (
+      <div style={pS.page} ref={printRef}>
+        <h1 style={pS.h1}>👤 Employee Device Assignments</h1>
+        <div style={pS.sub}>{today} · {Object.keys(byEmp).length} employees with devices · {unassigned.length} unassigned</div>
+        {Object.entries(byEmp).sort((a, b) => a[0].localeCompare(b[0])).map(([name, items]) => {
+          const emp = items[0]?.empNo ? findEmployee(items[0].empNo) : null;
+          return (
+            <div key={name}>
+              <div style={pS.section}>
+                {name} {emp && <span style={{ fontWeight: 400, fontSize: 11, color: "#666" }}>· {emp.empNo} · {emp.department || "—"} · {emp.position || "—"}</span>}
+                {emp && emp.status !== "Active" && <span style={{ ...pS.badge(false), marginLeft: 8 }}>{emp.status}</span>}
+              </div>
+              <table style={pS.table}>
+                <thead><tr><th style={pS.th}>Computer Name</th><th style={pS.th}>Type</th><th style={pS.th}>Serial #</th><th style={pS.th}>Model</th><th style={pS.th}>Status</th></tr></thead>
+                <tbody>{items.map(a => (
+                  <tr key={a.id}>
+                    <td style={pS.tdMono}>{a.computerName}</td><td style={pS.td}>{a.type}</td>
+                    <td style={pS.tdMono}>{a.serialNumber || "—"}</td><td style={pS.td}>{a.model || "—"}</td>
+                    <td style={pS.td}><span style={pS.badge(a.status === "Active")}>{a.status}</span></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          );
+        })}
+        {unassigned.length > 0 && <>
+          <div style={{ ...pS.section, color: "#c62828" }}>⚠ Unassigned Devices ({unassigned.length})</div>
+          <table style={pS.table}><AssetTableHead showAssigned={false} /><tbody>{unassigned.map(a => <AssetRow key={a.id} a={a} showAssigned={false} />)}</tbody></table>
+        </>}
+        <Footer />
+      </div>
+    );};
+
+    // ─── Problem Devices ───
+    const ProblemReport = () => { setReportTitle("Problem Devices Report"); return (
+      <div style={pS.page} ref={printRef}>
+        <h1 style={pS.h1}>⚠️ Problem Devices Report</h1>
+        <div style={pS.sub}>{today}</div>
+        <div style={{ marginBottom: 16 }}>
+          {[{ l: "Maintenance", v: (byStatus["Maintenance"] || []).length, c: "#e65100" }, { l: "Decommissioned", v: (byStatus["Decommissioned"] || []).length, c: "#c62828" }, { l: "Unassigned", v: unassigned.length, c: "#6a1b9a" }, { l: "Assigned to Ex-Employees", v: terminated.length, c: "#c62828" }].map(s => (
+            <div key={s.l} style={{ ...pS.stat, borderLeft: `3px solid ${s.c}` }}><div style={{ ...pS.statNum, color: s.c }}>{s.v}</div><div style={pS.statLabel}>{s.l}</div></div>
+          ))}
+        </div>
+
+        {(byStatus["Maintenance"] || []).length > 0 && <>
+          <div style={pS.section}>🔧 In Maintenance ({(byStatus["Maintenance"] || []).length})</div>
+          <table style={pS.table}><AssetTableHead /><tbody>{(byStatus["Maintenance"] || []).map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
+        </>}
+
+        {terminated.length > 0 && <>
+          <div style={{ ...pS.section, color: "#c62828" }}>🚫 Assigned to Terminated/Inactive Employees ({terminated.length})</div>
+          <table style={pS.table}><AssetTableHead /><tbody>{terminated.map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
+        </>}
+
+        {unassigned.length > 0 && <>
+          <div style={pS.section}>📦 Unassigned Devices ({unassigned.length})</div>
+          <table style={pS.table}><AssetTableHead showAssigned={false} /><tbody>{unassigned.map(a => <AssetRow key={a.id} a={a} showAssigned={false} />)}</tbody></table>
+        </>}
+
+        {(byStatus["Decommissioned"] || []).length > 0 && <>
+          <div style={pS.section}>🗑️ Decommissioned ({(byStatus["Decommissioned"] || []).length})</div>
+          <table style={pS.table}><AssetTableHead /><tbody>{(byStatus["Decommissioned"] || []).map(a => <AssetRow key={a.id} a={a} />)}</tbody></table>
+        </>}
+        <Footer />
+      </div>
+    );};
+
+    // ─── Employee Directory ───
+    const EmpDirectory = () => { setReportTitle("Employee Directory"); return (
+      <div style={pS.page} ref={printRef}>
+        <h1 style={pS.h1}>👥 Employee Directory</h1>
+        <div style={pS.sub}>{today} · {employees.length} employees</div>
+        <div style={{ marginBottom: 16 }}>
+          {[{ l: "Total", v: employees.length }, { l: "Active", v: employees.filter(e => e.status === "Active").length }, { l: "On Leave", v: employees.filter(e => e.status === "On Leave").length }, { l: "Departments", v: [...new Set(employees.map(e => e.department).filter(Boolean))].length }].map(s => (
+            <div key={s.l} style={pS.stat}><div style={pS.statNum}>{s.v}</div><div style={pS.statLabel}>{s.l}</div></div>
+          ))}
+        </div>
+        <table style={pS.table}>
+          <thead><tr>
+            <th style={pS.th}>Emp No</th><th style={pS.th}>Name</th><th style={pS.th}>Department</th>
+            <th style={pS.th}>Position</th><th style={pS.th}>Email</th><th style={pS.th}>Phone</th>
+            <th style={pS.th}>Location</th><th style={pS.th}>Status</th><th style={pS.th}>Devices</th>
+          </tr></thead>
+          <tbody>
+            {employees.sort((a, b) => (a.fullName || "").localeCompare(b.fullName || "")).map(e => {
+              const devCount = assets.filter(a => a.empNo && a.empNo.toUpperCase() === e.empNo.toUpperCase()).length;
+              return (
+                <tr key={e.id}>
+                  <td style={pS.tdMono}>{e.empNo}</td><td style={{ ...pS.td, fontWeight: 500 }}>{e.fullName}</td>
+                  <td style={pS.td}>{e.department || "—"}</td><td style={pS.td}>{e.position || "—"}</td>
+                  <td style={{ ...pS.td, fontSize: 10 }}>{e.email || "—"}</td><td style={pS.td}>{e.phone || "—"}</td>
+                  <td style={pS.td}>{e.location || "—"}</td>
+                  <td style={pS.td}><span style={pS.badge(e.status === "Active")}>{e.status}</span></td>
+                  <td style={{ ...pS.td, textAlign: "center", fontWeight: devCount > 0 ? 700 : 400 }}>{devCount || "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <Footer />
+      </div>
+    );};
+
+    const reports = [
+      { id: "full", icon: "📦", title: "Full Inventory", desc: "Complete list of all assets with details", count: assets.length, comp: FullInventory },
+      { id: "dept", icon: "🏢", title: "By Department", desc: "Assets grouped by department", count: Object.keys(byDept).length + " depts", comp: ByDepartment },
+      { id: "type", icon: "🖥️", title: "By Type", desc: "Assets grouped by device type", count: Object.keys(byType).length + " types", comp: ByTypeReport },
+      { id: "emp", icon: "👤", title: "Employee Assignments", desc: "Who has what devices", count: Object.keys(byEmp).length + " people", comp: EmpAssignments },
+      { id: "prob", icon: "⚠️", title: "Problem Devices", desc: "Maintenance, unassigned, ex-employee devices", count: (byStatus["Maintenance"]||[]).length + unassigned.length + terminated.length, comp: ProblemReport },
+      { id: "dir", icon: "👥", title: "Employee Directory", desc: "Full staff list with device counts", count: employees.length, comp: EmpDirectory },
+    ];
+
+    if (!report) return (
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>📊 Reports</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {reports.map(r => (
+            <button key={r.id} onClick={() => setReport(r.id)} style={{ ...S.card, cursor: "pointer", textAlign: "left", transition: "all .15s", border: `1px solid ${T.border}`, display: "flex", gap: 12, alignItems: "flex-start" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.cardHover; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; }}>
+              <div style={{ fontSize: 28, lineHeight: 1 }}>{r.icon}</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 3 }}>{r.title}</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>{r.desc}</div>
+                <div style={{ fontSize: 11, color: T.accent, fontWeight: 600, marginTop: 5 }}>{r.count} items</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+
+    const activeReport = reports.find(r => r.id === report);
+    const ReportComp = activeReport?.comp;
+
+    return (
+      <div style={{ maxWidth: 960, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button style={S.btn("ghost")} onClick={() => setReport(null)}>← Back</button>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{activeReport?.icon} {activeReport?.title}</h2>
+          </div>
+          <button style={S.btn("pri")} onClick={doPrint}>{I(ICO.up, 15)} Print / Save PDF</button>
+        </div>
+        {ReportComp && <ReportComp />}
+      </div>
+    );
+  };
+
+  // ─── AUDIT LOG VIEW ───
+  const AuditLogView = () => {
+    useEffect(() => { if (settings.url && !auditLog.length) fetchAuditLog(); }, []);
+    const actionColor = (a) => ({ ADD: T.green, EDIT: T.accent, DELETE: T.red, PUSH: T.orange, PULL: T.purple }[a] || T.textMid);
+    const actionIcon = (a) => ({ ADD: "➕", EDIT: "✏️", DELETE: "🗑️", PUSH: "⬆️", PULL: "⬇️" }[a] || "📝");
+    return (
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>📝 Audit Log</h2>
+          <button style={S.btn("pri")} onClick={fetchAuditLog} disabled={syncing}>{I(ICO.sync, 15)} {syncing ? "Loading..." : "Refresh"}</button>
+        </div>
+        {currentUser && (
+          <div style={{ fontSize: 12, color: T.textMid, marginBottom: 12 }}>
+            Logged in as <strong style={{ color: T.accent }}>{currentUser}</strong>
+          </div>
+        )}
+        {!settings.url ? (
+          <div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>🔗</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Connect to Google Sheets first</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Set your Apps Script URL in Settings to enable audit logging</div>
+          </div>
+        ) : auditLog.length === 0 ? (
+          <div style={{ ...S.card, textAlign: "center", padding: 40, color: T.textDim }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>📋</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>No audit entries yet</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Actions will be logged when users add, edit, or delete assets via the app</div>
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${T.border}` }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr>
+                {["Time", "User", "Action", "Sheet", "Target", "Details"].map(h => <th key={h} style={S.th}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {auditLog.map((entry, i) => (
+                  <tr key={i} style={{ transition: "background .12s" }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.cardHover}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <td style={{ ...S.td, fontSize: 11, fontFamily: T.mono, color: T.textDim, whiteSpace: "nowrap" }}>
+                      {entry.Timestamp}
+                    </td>
+                    <td style={{ ...S.td, fontSize: 12 }}>
+                      <span title={entry.User} style={{ color: T.accent }}>{(entry.User || "").split("@")[0] || "—"}</span>
+                    </td>
+                    <td style={S.td}>
+                      <span style={{ ...S.badge(actionColor(entry.Action)), display: "inline-flex", alignItems: "center", gap: 3 }}>
+                        {actionIcon(entry.Action)} {entry.Action}
+                      </span>
+                    </td>
+                    <td style={{ ...S.td, fontSize: 12, color: T.textMid }}>{entry.Sheet}</td>
+                    <td style={{ ...S.td, fontFamily: T.mono, fontSize: 11, fontWeight: 600 }}>{entry.Target || "—"}</td>
+                    <td style={{ ...S.td, fontSize: 11, color: T.textDim, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={entry.Details}>
+                      {entry.Details || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div style={{ marginTop: 8, fontSize: 11, color: T.textDim }}>
+          Showing {auditLog.length} most recent entries · Full log available in the "Audit Log" sheet in Google Sheets
+        </div>
+      </div>
+    );
+  };
+
+  // ─── SETTINGS VIEW ───
+  const SettingsView = () => {
+    const [u, setU] = useState(settings.url);
+    const isPreconfigured = !!PRECONFIGURED_URL;
+    return (
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>⚙️ Settings</h2>
+
+        {isPreconfigured && (
+          <div style={{ background: T.greenDim, border: `1px solid ${T.green}30`, borderRadius: 8, padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 18 }}>✅</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>Pre-configured & Ready</div>
+              <div style={{ fontSize: 11, color: T.textMid }}>Google Sheets URL is already set. No setup needed — just start adding assets.</div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Google Sheets Connection</h3>
+          <div style={S.fg}>
+            <label style={S.lbl}>Apps Script Web App URL {isPreconfigured && <span style={{ color: T.green, textTransform: "none", fontWeight: 400 }}>(pre-configured)</span>}</label>
+            <input style={{ ...S.fi, ...(isPreconfigured && { opacity: 0.7 }) }} value={u} onChange={e => setU(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"
+              readOnly={isPreconfigured} />
+            {isPreconfigured && <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>This URL was set by the admin in the app file. To change it, edit the PRECONFIGURED_URL at the top of the file.</div>}
+          </div>
+          {!isPreconfigured && <button style={S.btn("pri")} onClick={() => { saveSettings({ ...settings, url: u.trim() }); notify("Settings saved"); }}>{I(ICO.check, 15)} Save URL</button>}
+          {settings.url && <button style={{ ...S.btn("out"), marginLeft: 8 }} onClick={async () => {
+            const r = await apiCall("GET", { action: "ping" });
+            if (r?.success) notify("✓ Connected to Google Sheets!"); else notify("Connection failed", "error");
+          }}>{I(ICO.zap, 14)} Test Connection</button>}
+        </div>
+
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Sync Data</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button style={S.btn("pri")} onClick={pushAssets} disabled={syncing}>{I(ICO.up, 15)} Push Assets</button>
+            <button style={S.btn("out")} onClick={pullAssets} disabled={syncing}>{I(ICO.down, 15)} Pull Assets</button>
+            <button style={{ ...S.btn("green") }} onClick={pushEmployees} disabled={syncing}>{I(ICO.up, 15)} Push Employees</button>
+            <button style={S.btn("out")} onClick={pullEmployees} disabled={syncing}>{I(ICO.down, 15)} Pull Employees</button>
+          </div>
+          {syncing && <div style={{ fontSize: 12, color: T.orange, marginTop: 8 }}>Syncing...</div>}
+        </div>
+
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Data Management</h3>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button style={S.btn("out")} onClick={exportCSV}>{I(ICO.down, 15)} Export CSV</button>
+            <button style={S.btn("red")} onClick={() => { if (confirm("Delete ALL local assets?")) { saveAssets([]); notify("Assets cleared"); } }}>{I(ICO.trash, 14)} Clear Assets</button>
+            <button style={S.btn("red")} onClick={() => { if (confirm("Delete ALL local employees?")) { saveEmployees([]); notify("Employees cleared"); } }}>{I(ICO.trash, 14)} Clear Employees</button>
+          </div>
+        </div>
+
+        <div style={{ ...S.card, background: T.accentDim, border: `1px solid ${T.accent}25` }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: T.accent, marginBottom: 10 }}>📋 Setup Guide (for any machine)</h3>
+          <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: T.text, lineHeight: 2.1 }}>
+            <li>Create a <strong>new Google Sheet</strong> (or use existing)</li>
+            <li>Go to <strong>Extensions → Apps Script</strong></li>
+            <li>Delete default code, paste the <strong>google-apps-script.gs</strong> file</li>
+            <li>In the function dropdown select <strong>initializeAll</strong></li>
+            <li>Click <strong>▶ Run</strong> → Authorize when prompted</li>
+            <li>This creates <strong>Assets + Employees + Dashboard</strong> sheets with all formatting</li>
+            <li>Click <strong>Deploy → New Deployment → Web app</strong></li>
+            <li>Set "Who has access" to <strong>"Anyone"</strong></li>
+            <li>Copy the URL → paste it above → Save</li>
+            <li><strong>Share the Sheet</strong> with coworkers (Editor access) + give them this app URL</li>
+          </ol>
+        </div>
+      </div>
+    );
+  };
+
+  // ═══════════════════════════════════════════
+  //  LOGIN SCREEN
+  // ═══════════════════════════════════════════
+  const LoginScreen = () => {
+    const [name, setName] = useState("");
+    const [email, setEmail] = useState("");
+    const handleLogin = (e) => {
+      e.preventDefault();
+      if (!name.trim()) return;
+      saveUserProfile({ name: name.trim(), email: email.trim() || name.trim() });
+    };
+    return (
+      <div style={{ ...S.wrap, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <style>{`
+          * { box-sizing: border-box; margin: 0; }
+          input::placeholder { color: ${T.textDim}; }
+        `}</style>
+        <div style={{ width: "100%", maxWidth: 380, padding: 20 }}>
+          <div style={{ textAlign: "center", marginBottom: 28 }}>
+            <div style={{ width: 56, height: 56, background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+              {I(ICO.pc, 28)}
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 22, letterSpacing: "-.02em" }}>Asset Tracker</div>
+            <div style={{ fontSize: 12, color: T.textDim, marginTop: 4 }}>Sign in to track who makes changes</div>
+          </div>
+          <form onSubmit={handleLogin} style={S.card}>
+            <div style={S.fg}>
+              <label style={S.lbl}>Your Name *</label>
+              <input style={S.fi} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. John Smith" autoFocus required />
+            </div>
+            <div style={S.fg}>
+              <label style={S.lbl}>Email (optional)</label>
+              <input style={S.fi} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="john@company.com" />
+            </div>
+            <button type="submit" style={{ ...S.btn("pri"), width: "100%", justifyContent: "center", padding: "11px 20px", fontSize: 14 }}>
+              {I(ICO.check, 16)} Sign In
+            </button>
+            <div style={{ fontSize: 10, color: T.textDim, textAlign: "center", marginTop: 10 }}>Your name is saved locally and logged with every action</div>
+          </form>
+          <div style={{ textAlign: "right", padding: "10px 0 0", fontSize: 9, color: T.border, fontFamily: T.mono }}>by: MJE</div>
+        </div>
+      </div>
+    );
+  };
+
+  // ═══════════════════════════════════════════
+  //  RENDER
+  // ═══════════════════════════════════════════
+
+  // Show login screen if no user profile
+  if (!userProfile) return <LoginScreen />;
+
+  return (
+    <div style={S.wrap}>
+      <style>{`
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        * { box-sizing: border-box; margin: 0; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: ${T.bg}; }
+        ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }
+        select option { background: ${T.card}; color: ${T.text}; }
+        input::placeholder, textarea::placeholder { color: ${T.textDim}; }
+        @media (max-width: 640px) { table { font-size: 11px; } th, td { padding: 7px 5px !important; } }
+      `}</style>
+
+      {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} key={toast.k} />}
+
+      <header style={S.hdr}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 30, height: 30, background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {I(ICO.pc, 16)}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: "-.01em" }}>Asset Tracker</div>
+            <div style={{ fontSize: 9, color: T.textDim, textTransform: "uppercase", letterSpacing: ".06em", display: "flex", alignItems: "center", gap: 4 }}>
+              {currentUser ? <span style={{ textTransform: "none", color: T.textMid, cursor: "pointer" }} title="Click to sign out" onClick={logoutUser}>{currentUser.split("@")[0]} ✕</span> : "Hardware · Employees"}
+              {settings.url && <span title={`Connected${currentUser ? " as " + currentUser : ""}`} style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: T.green, marginLeft: 4 }} />}
+            </div>
+          </div>
+        </div>
+        <nav style={S.nav}>
+          {[
+            { v: "assets", icon: ICO.pc, label: "Assets" },
+            { v: "employees", icon: ICO.user, label: "People" },
+            { v: "scan", icon: ICO.cam, label: "Scan" },
+            { v: "reports", icon: ICO.list, label: "Reports" },
+            { v: "audit", icon: ICO.alert, label: "Audit" },
+            { v: "settings", icon: ICO.gear, label: "Settings" },
+          ].map(({ v, icon, label }) => (
+            <button key={v} style={S.navBtn(view === v || (v === "assets" && view === "form") || (v === "employees" && view === "empForm"))} onClick={() => setView(v)}>
+              {I(icon, 15)} <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main style={S.main}>
+        {view === "assets" && <AssetsView />}
+        {view === "form" && <AssetForm />}
+        {view === "employees" && <EmployeesView />}
+        {view === "empForm" && <EmpForm />}
+        {view === "scan" && <ScanView />}
+        {view === "reports" && <ReportsView />}
+        {view === "audit" && <AuditLogView />}
+        {view === "settings" && <SettingsView />}
+      </main>
+      <div style={{ textAlign: "right", padding: "8px 16px 10px", fontSize: 9, color: T.border, letterSpacing: ".04em", fontFamily: T.mono, userSelect: "none" }}>by: MJE</div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(React.createElement(App));
+</script>
+</body>
+</html>
