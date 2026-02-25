@@ -210,7 +210,7 @@ function genStations(){const s=[];for(let i=1;i<=320;i++)s.push('F-'+String(i).p
 const ALL_STATIONS = genStations();
 
 function parseOCR(raw, mode){
-  const R={employeeId:'',employeeName:'',position:'',hostname:''};
+  const R={employeeId:'',employeeName:'',position:'',hostname:'',candidates:[]};
   const lines=raw.split('\n').map(l=>l.trim()).filter(l=>l.length>1);
   if(mode==='badge'){
     for(let i=0;i<lines.length;i++){const l=lines[i];if(/employee\s*n/i.test(l)){const m=l.match(/(\d{5,8})/);if(m)R.employeeId=m[1];else if(i+1<lines.length){const n=lines[i+1].match(/(\d{5,8})/);if(n)R.employeeId=n[1];}}if(!R.employeeId){const s=l.match(/^(\d{7})$/);if(s)R.employeeId=s[1];}}
@@ -225,6 +225,8 @@ function parseOCR(raw, mode){
     if(m){R.hostname=m[0].replace(/\s/g,'').toUpperCase();if(R.hostname.startsWith('OBPN'))R.hostname='OBPH'+R.hostname.substring(4);}
     if(!R.hostname){m=all.match(/[A-Z]{2,6}[-][A-Z0-9]{3,10}/i);if(m)R.hostname=m[0].toUpperCase();}
     if(!R.hostname){for(const l of lines){if(/^[A-Z0-9-]{5,15}$/i.test(l)&&/[A-Z]/i.test(l)&&/[0-9]/.test(l)){R.hostname=l.toUpperCase();break;}}}
+    // Always collect candidate lines so user can pick if auto-detect fails
+    R.candidates=lines.filter(l=>l.length>=2&&!/^\s*$/.test(l)).map(l=>l.replace(/\s+/g,' ').trim());
   }
   return R;
 }
@@ -351,13 +353,21 @@ function CameraScanner({onResult, scanMode, setScanMode}){
         React.createElement('button',{className:'capture-btn stop-cam',onClick:stopCam},'✕ Close')
       )
     ),
-    results&&(results.employeeId||results.employeeName||results.hostname||results.position)?
+    results&&(results.employeeId||results.employeeName||results.hostname||results.position||(results.candidates&&results.candidates.length))?
       React.createElement('div',{className:'ocr-results'},
-        React.createElement('div',{style:{fontSize:9,color:'var(--green)',fontWeight:600,textTransform:'uppercase',letterSpacing:1,marginBottom:3}},'✓ Detected ('+( scanMode==='badge'?'Badge':'Device')+')'),
+        results.hostname?React.createElement('div',{style:{fontSize:9,color:'var(--green)',fontWeight:600,textTransform:'uppercase',letterSpacing:1,marginBottom:3}},'✓ Hostname Detected'):
+        results.employeeId||results.employeeName?React.createElement('div',{style:{fontSize:9,color:'var(--green)',fontWeight:600,textTransform:'uppercase',letterSpacing:1,marginBottom:3}},'✓ Detected (Badge)'):
+        results.candidates&&results.candidates.length?React.createElement('div',{style:{fontSize:9,color:'var(--yellow)',fontWeight:600,textTransform:'uppercase',letterSpacing:1,marginBottom:3}},'⚠ No hostname pattern found — tap a line to use it'):null,
         results.employeeId?React.createElement('div',{className:'ocr-result-item'},React.createElement('span',{className:'ocr-result-label'},'ID'),React.createElement('span',{className:'ocr-result-value'},results.employeeId),React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({employeeId:results.employeeId})},'Apply')):null,
         results.employeeName?React.createElement('div',{className:'ocr-result-item'},React.createElement('span',{className:'ocr-result-label'},'Name'),React.createElement('span',{className:'ocr-result-value'},results.employeeName),React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({employeeName:results.employeeName})},'Apply')):null,
         results.position?React.createElement('div',{className:'ocr-result-item'},React.createElement('span',{className:'ocr-result-label'},'Position'),React.createElement('span',{className:'ocr-result-value'},results.position),React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({position:results.position})},'Apply')):null,
         results.hostname?React.createElement('div',{className:'ocr-result-item'},React.createElement('span',{className:'ocr-result-label'},'Host'),React.createElement('span',{className:'ocr-result-value'},results.hostname),React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({hostname:results.hostname})},'Apply')):null,
+        !results.hostname&&results.candidates&&results.candidates.length?React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:2,marginTop:2}},
+          results.candidates.map((line,i)=>React.createElement('div',{key:i,className:'ocr-result-item',style:{cursor:'pointer',padding:'3px 4px',borderRadius:4,background:'rgba(255,255,255,.03)'}},
+            React.createElement('span',{style:{color:'var(--text)',fontFamily:"'IBM Plex Mono',monospace",fontSize:11,flex:1,wordBreak:'break-all'}},line),
+            React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({hostname:line.replace(/\s+/g,'').toUpperCase()})},'Use as Host')
+          ))
+        ):null,
         React.createElement('button',{className:'ocr-raw-toggle',onClick:()=>setShowRaw(!showRaw)},showRaw?'Hide raw':'Show raw'),
         showRaw?React.createElement('div',{className:'ocr-raw'},rawText):null
       ):null
