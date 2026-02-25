@@ -11,10 +11,10 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2d3140;--text:#e4e7ef;--text-dim:#8b90a0;--accent:#4f8cff;--accent-glow:rgba(79,140,255,.15);--green:#34d399;--green-dim:rgba(52,211,153,.12);--red:#f87171;--red-dim:rgba(248,113,113,.12);--yellow:#fbbf24;--yellow-dim:rgba(251,191,36,.12)}
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;-webkit-user-select:none;user-select:none}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0)!important;-webkit-user-select:none!important;-khtml-user-select:none!important;-moz-user-select:none!important;-ms-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh}
 button{-webkit-user-select:none;user-select:none}
-input,textarea{-webkit-user-select:text;user-select:text}
+input,textarea{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}
 .topbar{height:44px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 10px;gap:8px;z-index:100}
 .topbar-logo{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:13px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;white-space:nowrap}
 .topbar-sep{width:1px;height:20px;background:var(--border)}
@@ -45,7 +45,7 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .sync-btn{width:100%;padding:5px;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:5px}
 .sync-btn:hover,:active{opacity:.85}.sync-btn:disabled{opacity:.5;cursor:not-allowed}
 .sync-status{font-size:9px;color:var(--text-dim);margin-top:3px;font-family:'IBM Plex Mono',monospace}
-.map-container{flex:1;overflow:auto;position:relative;background:var(--bg);background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.03) 1px,transparent 0);background-size:24px 24px;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;overscroll-behavior:contain}
+.map-container{flex:1;overflow:scroll;position:relative;background:var(--bg);background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.03) 1px,transparent 0);background-size:24px 24px;-webkit-overflow-scrolling:touch}
 .map-inner{min-width:1900px;min-height:1500px;padding:20px;position:relative}
 .station{width:92px;height:68px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:5px 6px;display:flex;flex-direction:column;justify-content:space-between;transition:all .12s;position:relative;overflow:hidden;-webkit-tap-highlight-color:transparent}
 .station:hover{border-color:var(--accent);box-shadow:0 0 14px var(--accent-glow);z-index:2}
@@ -112,7 +112,7 @@ input,textarea{-webkit-user-select:text;user-select:text}
 .ocr-raw-toggle{font-size:9px;color:var(--text-dim);cursor:pointer;padding:2px 0;text-decoration:underline;border:none;background:none;font-family:inherit}
 .ocr-raw{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-dim);background:rgba(0,0,0,.3);padding:5px;border-radius:4px;max-height:60px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:3px}
 .cam-error{padding:6px 10px;font-size:11px;color:var(--red);background:var(--red-dim);border-radius:4px;margin:5px 10px}
-.list-view{flex:1;overflow:auto;padding:12px;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+.list-view{flex:1;overflow:scroll;padding:12px;-webkit-overflow-scrolling:touch}
 .list-table{width:100%;border-collapse:collapse;font-size:12px}
 .list-table thead th{text-align:left;padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);font-weight:600;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:5}
 .list-table tbody tr{cursor:pointer}.list-table tbody tr:hover,:active{background:var(--surface2)}
@@ -150,6 +150,34 @@ input,textarea{-webkit-user-select:text;user-select:text}
 <body>
 <canvas id="ocrCanvas"></canvas>
 <div id="root"></div>
+<script>
+// Kill text selection on touch - nuclear approach
+document.addEventListener('selectstart', function(e) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  e.preventDefault();
+}, {passive: false});
+
+// Clear any selection that somehow happens during touch
+document.addEventListener('touchstart', function() {
+  var sel = window.getSelection();
+  if (sel) sel.removeAllRanges();
+}, {passive: true});
+
+document.addEventListener('touchmove', function() {
+  var sel = window.getSelection();
+  if (sel && sel.rangeCount > 0) sel.removeAllRanges();
+}, {passive: true});
+
+document.addEventListener('touchend', function() {
+  var sel = window.getSelection();
+  if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+    var node = sel.anchorNode && sel.anchorNode.parentElement;
+    if (node && node.tagName !== 'INPUT' && node.tagName !== 'TEXTAREA') {
+      sel.removeAllRanges();
+    }
+  }
+}, {passive: true});
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
