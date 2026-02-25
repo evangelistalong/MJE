@@ -11,7 +11,9 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2d3140;--text:#e4e7ef;--text-dim:#8b90a0;--accent:#4f8cff;--accent-glow:rgba(79,140,255,.15);--green:#34d399;--green-dim:rgba(52,211,153,.12);--red:#f87171;--red-dim:rgba(248,113,113,.12);--yellow:#fbbf24;--yellow-dim:rgba(251,191,36,.12)}
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0)!important;-webkit-user-select:none!important;-khtml-user-select:none!important;-moz-user-select:none!important;-ms-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0)!important;-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}
+*::selection{background:transparent!important;color:inherit!important}
+*::-moz-selection{background:transparent!important;color:inherit!important}
 body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh}
 button{-webkit-user-select:none;user-select:none}
 input,textarea{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}
@@ -438,7 +440,7 @@ function StationModal({stationId, data, onSave, onClear, onClose}){
 function FloorMapView({stationData,searchQuery,matchesSearch,onSelect,zoom}){
   const h=React.createElement;
   return h('div',{className:'map-container'},
-    h('div',{className:'map-inner',style:{transform:'scale('+zoom+')',transformOrigin:'top left'}},
+    h('div',{className:'map-inner',style:{zoom:zoom}},
       Object.entries(FLOOR_LAYOUT).map(function([key,block]){
         const maxCols=Math.max(...block.rows.map(r=>r.length));
         return h('div',{key,style:{position:'absolute',left:block.x+20,top:block.y+20}},
