@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Floor Map Asset Tracker v2</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #232733;
+    --border: #2d3140;
+    --text: #e4e7ef;
+    --text-dim: #8b90a0;
+    --accent: #4f8cff;
+    --accent-glow: rgba(79, 140, 255, 0.15);
+    --green: #34d399;
+    --green-dim: rgba(52, 211, 153, 0.12);
+    --red: #f87171;
+    --red-dim: rgba(248, 113, 113, 0.12);
+    --yellow: #fbbf24;
+    --yellow-dim: rgba(251, 191, 36, 0.12);
+    --purple: #a78bfa;
+    --orange: #fb923c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* TOPBAR */
+  .topbar {
+    height: 52px; background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 16px; gap: 12px; z-index: 100; position: relative;
+  }
+  .topbar-logo { font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 14px; color: var(--accent); letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+  .topbar-sep { width: 1px; height: 24px; background: var(--border); }
+  .topbar-search { flex: 1; max-width: 400px; position: relative; }
+  .topbar-search input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 12px 7px 34px; color: var(--text); font-size: 13px; font-family: inherit; outline: none; transition: border-color 0.2s;
+  }
+  .topbar-search input:focus { border-color: var(--accent); }
+  .topbar-search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-dim); }
+  .topbar-stats { display: flex; gap: 16px; margin-left: auto; font-size: 12px; font-family: 'IBM Plex Mono', monospace; }
+  .stat { display: flex; align-items: center; gap: 5px; }
+  .stat-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .stat-dot.green { background: var(--green); }
+  .stat-dot.yellow { background: var(--yellow); }
+  .topbar-btn {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text); font-size: 12px; font-family: inherit; cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .topbar-btn:hover, .topbar-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* LAYOUT */
+  .app-body { display: flex; height: calc(100vh - 52px); }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 260px; background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0;
+  }
+  .sidebar-section { padding: 12px; border-bottom: 1px solid var(--border); }
+  .sidebar-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 8px; font-weight: 600; }
+  .floor-btn {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+    border: none; background: transparent; color: var(--text); font-size: 13px;
+    font-family: inherit; cursor: pointer; border-radius: 5px; transition: background 0.15s; text-align: left;
+  }
+  .floor-btn:hover { background: var(--surface2); }
+  .floor-btn.active { background: var(--accent-glow); color: var(--accent); }
+  .floor-icon { width: 8px; height: 8px; border-radius: 2px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; color: var(--text-dim); }
+  .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+  .settings-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+    padding: 6px 8px; color: var(--text); font-size: 12px; font-family: 'IBM Plex Mono', monospace; outline: none; margin-top: 4px;
+  }
+  .settings-input:focus { border-color: var(--accent); }
+  .sync-btn {
+    width: 100%; padding: 8px; border: none; border-radius: 5px; background: var(--accent);
+    color: #fff; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; margin-top: 8px; transition: opacity 0.15s;
+  }
+  .sync-btn:hover { opacity: 0.85; }
+  .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .sync-status { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-family: 'IBM Plex Mono', monospace; }
+
+  /* MAP */
+  .map-container { flex: 1; overflow: auto; position: relative; background: var(--bg);
+    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+  .map-inner { min-width: 1600px; min-height: 1400px; padding: 24px; position: relative; }
+
+  /* STATIONS */
+  .station {
+    width: 68px; height: 52px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--surface); cursor: pointer; padding: 3px 4px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    transition: all 0.15s; position: relative; overflow: hidden;
+  }
+  .station:hover { border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); z-index: 2; transform: scale(1.08); }
+  .station.occupied { background: linear-gradient(135deg, var(--surface) 0%, rgba(52,211,153,0.06) 100%); border-color: rgba(52,211,153,0.3); }
+  .station.available { background: var(--surface); opacity: 0.5; }
+  .station.available:hover { opacity: 1; }
+  .station.highlighted { border-color: var(--yellow) !important; box-shadow: 0 0 16px var(--yellow-dim) !important; z-index: 3; animation: pulse-highlight 1.5s ease-in-out infinite; }
+  @keyframes pulse-highlight { 0%,100%{box-shadow:0 0 8px var(--yellow-dim)} 50%{box-shadow:0 0 20px rgba(251,191,36,0.3)} }
+  .station-id { font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600; color: var(--text-dim); letter-spacing: 0.5px; }
+  .station-name { font-size: 8px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+  .station-device { font-family: 'IBM Plex Mono', monospace; font-size: 7px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ROOMS */
+  .room {
+    border: 1px dashed var(--border); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.02); position: absolute;
+  }
+  .room-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); opacity: 0.4; text-align: center; line-height: 1.4; white-space: pre-line; }
+
+  /* MODAL */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+    z-index: 1000; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    width: 520px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 48px rgba(0,0,0,0.4); animation: slideUp 0.2s ease;
+  }
+  @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+  .modal-header {
+    padding: 20px 24px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-title { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 700; color: var(--accent); }
+  .modal-close {
+    width: 32px; height: 32px; border: none; background: var(--surface2); border-radius: 6px;
+    color: var(--text-dim); cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+  }
+  .modal-close:hover { background: var(--red-dim); color: var(--red); }
+  .modal-body { padding: 20px 24px; }
+  .field { margin-bottom: 14px; }
+  .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 5px; font-weight: 600; }
+  .field-row { display: flex; gap: 6px; align-items: stretch; }
+  .field-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; color: var(--text); font-size: 14px; font-family: inherit; outline: none; transition: border-color 0.2s;
+  }
+  .field-input:focus { border-color: var(--accent); }
+  .field-input::placeholder { color: var(--text-dim); opacity: 0.5; }
+  .field-input.filled { border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.04); }
+  select.field-input {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b90a0'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
+  }
+  .modal-actions {
+    padding: 16px 24px 20px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--border);
+  }
+  .btn {
+    padding: 8px 20px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text); font-size: 13px; font-family: inherit; font-weight: 500; cursor: pointer; transition: all 0.15s;
+  }
+  .btn:hover { background: var(--border); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { opacity: 0.85; }
+  .btn-danger { background: var(--red-dim); border-color: rgba(248,113,113,0.3); color: var(--red); }
+  .btn-danger:hover { background: rgba(248,113,113,0.2); }
+
+  /* Current assignment */
+  .current-assignment { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .current-tag { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--green); font-weight: 600; margin-bottom: 6px; }
+  .current-info { font-size: 13px; color: var(--text); line-height: 1.6; }
+  .current-info strong { color: var(--accent); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+
+  /* ========== CAMERA / OCR ========== */
+  .scan-section {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 16px; overflow: hidden;
+  }
+  .scan-header {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .scan-header-title { font-size: 12px; font-weight: 600; color: var(--accent); flex: 1; }
+  .scan-mode-btn {
+    padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text-dim); font-size: 11px;
+    font-family: inherit; cursor: pointer; transition: all 0.15s;
+  }
+  .scan-mode-btn:hover { border-color: var(--accent); color: var(--text); }
+  .scan-mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .camera-container {
+    position: relative; width: 100%; background: #000; aspect-ratio: 4/3; max-height: 280px;
+  }
+  .camera-container video {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .camera-overlay {
+    position: absolute; inset: 0; pointer-events: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .scan-frame {
+    border: 2px dashed var(--accent); border-radius: 8px;
+    width: 80%; height: 60%; opacity: 0.6;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .scan-frame-label {
+    font-size: 11px; color: var(--accent); opacity: 0.8;
+    font-family: 'IBM Plex Mono', monospace;
+    background: rgba(0,0,0,0.6); padding: 4px 10px; border-radius: 4px;
+  }
+
+  .scan-controls {
+    display: flex; gap: 6px; padding: 10px 14px; justify-content: center; align-items: center;
+  }
+  .capture-btn {
+    padding: 8px 24px; border-radius: 8px; border: none;
+    background: var(--accent); color: #fff; font-size: 13px; font-weight: 600;
+    font-family: inherit; cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .capture-btn:hover { opacity: 0.85; }
+  .capture-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .capture-btn.scanning { background: var(--yellow); color: #000; }
+  .capture-btn.open-cam { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .capture-btn.open-cam:hover { border-color: var(--accent); color: var(--accent); }
+  .capture-btn.stop-cam { background: var(--red-dim); color: var(--red); border: 1px solid rgba(248,113,113,0.3); }
+
+  .ocr-progress {
+    padding: 8px 14px; font-size: 11px; color: var(--yellow);
+    font-family: 'IBM Plex Mono', monospace;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .ocr-spinner {
+    width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--yellow); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .ocr-results {
+    padding: 10px 14px; border-top: 1px solid var(--border);
+  }
+  .ocr-result-item {
+    display: flex; align-items: center; gap: 8px; padding: 4px 0;
+    font-size: 12px;
+  }
+  .ocr-result-label { color: var(--text-dim); min-width: 80px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .ocr-result-value { color: var(--green); font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
+  .ocr-apply-btn {
+    padding: 3px 10px; border-radius: 4px; border: 1px solid rgba(52,211,153,0.3);
+    background: var(--green-dim); color: var(--green); font-size: 10px;
+    font-family: inherit; cursor: pointer; margin-left: auto; transition: all 0.15s;
+  }
+  .ocr-apply-btn:hover { background: rgba(52,211,153,0.2); }
+  .ocr-raw-toggle {
+    font-size: 10px; color: var(--text-dim); cursor: pointer; padding: 4px 0; text-decoration: underline;
+    border: none; background: none; font-family: inherit;
+  }
+  .ocr-raw {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-dim);
+    background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px;
+    max-height: 80px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    margin-top: 4px;
+  }
+
+  /* LIST VIEW */
+  .list-view { flex: 1; overflow: auto; padding: 16px; }
+  .list-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .list-table thead th {
+    text-align: left; padding: 8px 12px; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text-dim); font-weight: 600;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 5;
+  }
+  .list-table tbody tr { cursor: pointer; transition: background 0.1s; }
+  .list-table tbody tr:hover { background: var(--surface2); }
+  .list-table td { padding: 8px 12px; border-bottom: 1px solid rgba(45,49,64,0.5); }
+  .td-mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .status-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .status-badge.occupied { background: var(--green-dim); color: var(--green); }
+  .status-badge.available { background: rgba(255,255,255,0.05); color: var(--text-dim); }
+
+  /* ZOOM */
+  .zoom-controls { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 4px; z-index: 50; }
+  .zoom-btn {
+    width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface); color: var(--text); font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+  }
+  .zoom-btn:hover { background: var(--accent); color: #fff; }
+  .zoom-level { text-align: center; font-size: 10px; font-family: 'IBM Plex Mono', monospace; color: var(--text-dim); padding: 2px 0; }
+
+  /* TOAST */
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    padding: 10px 20px; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 13px; z-index: 2000;
+    animation: toastIn 0.3s ease; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  .toast.success { border-color: rgba(52,211,153,0.4); }
+  .toast.error { border-color: rgba(248,113,113,0.4); }
+  @keyframes toastIn { from{transform:translateX(-50%) translateY(20px);opacity:0} to{transform:translateX(-50%) translateY(0);opacity:1} }
+
+  /* LOADING */
+  .loading-overlay {
+    position: fixed; inset: 0; background: rgba(15,17,23,0.9); z-index: 3000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  }
+  .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  /* Hidden canvas for OCR */
+  #ocrCanvas { display: none; }
+</style>
+</head>
+<body>
+<canvas id="ocrCanvas"></canvas>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// ==================== FLOOR MAP LAYOUT DATA ====================
+const FLOOR_LAYOUT = {
+  leftTop: { x: 0, y: 0, rows: [['F-001','F-002','F-003','F-004'],['F-005','F-006','F-007','F-008']] },
+  leftExec1: { x: 0, y: 126, rows: [['F-009','F-010','F-011','F-012'],['F-013','F-014','F-015','F-016']] },
+  leftMid: { x: 0, y: 252, rows: [['F-017','F-018','F-019','F-020'],['F-021','F-022','F-023','F-024']] },
+  leftBlock2: { x: 0, y: 398, rows: [['F-025','F-026','F-027','F-028'],['F-029','F-030','F-031','F-032']] },
+  leftBlock3: { x: 0, y: 524, rows: [['F-033','F-034','F-035','F-036','F-037'],['F-038','F-039','F-040','F-041','F-042']] },
+  leftBlock4: { x: 0, y: 650, rows: [['F-043','F-044','F-045','F-046','F-047'],['F-048','F-049','F-050','F-051','F-052']] },
+  leftBlock5: { x: 0, y: 776, rows: [['F-053','F-054','F-055','F-056','F-057'],['F-058','F-059','F-060','F-061','F-062']] },
+  leftBlock6: { x: 0, y: 902, rows: [['F-063','F-064','F-065','F-066','F-067'],['F-068','F-069','F-070','F-071','F-072']] },
+  leftBottom: { x: 0, y: 1028, rows: [['F-073','F-074','F-075'],['F-076','F-077','F-078']] },
+  centerRow1: { x: 380, y: 0, rows: [['F-079','F-080','F-081','F-082','F-083','F-084','F-085'],['F-086','F-087','F-088','F-089','F-090','F-091','_092']] },
+  centerRow2: { x: 380, y: 126, rows: [['F-093','F-094','F-095','F-096','F-097','F-098'],['F-099','F-100','F-101','F-102','F-103','F-104']] },
+  centerRow3: { x: 380, y: 252, rows: [['F-105','F-106','F-107','F-108','F-109','F-110'],['F-111','F-112','F-113','F-114','F-115','F-116']] },
+  centerRow4: { x: 380, y: 398, rows: [['F-117','F-118','F-119','F-120','F-121','F-122','F-123','F-124','F-125'],['F-126','F-127','F-128','F-129','F-130','F-131','F-132','F-133','F-134']] },
+  centerRow5: { x: 380, y: 524, rows: [['F-135','F-136','F-137','F-138','F-139','F-140','F-141','F-142','F-143'],['F-144','F-145','F-146','F-147','F-148','F-149','F-150','F-151','F-152']] },
+  centerRow6: { x: 380, y: 650, rows: [['F-153','F-154','F-155','F-156','F-157','F-158','F-159','F-160','F-161'],['F-162','F-163','F-164','F-165','F-166','F-167','F-168','F-169','F-170']] },
+  centerRow7: { x: 380, y: 776, rows: [['F-171','F-172','F-173','F-174','F-175','F-176','F-177','F-178','F-179'],['F-180','F-181','F-182','F-183','F-184','F-185','F-186','F-187','F-188']] },
+  centerRow8: { x: 380, y: 902, rows: [['F-189','F-190','F-191','F-192','F-193','F-194','F-195','F-196','F-197'],['F-198','F-199','F-200','F-201','F-202','F-203','F-204','F-205','F-206']] },
+  centerRow9: { x: 380, y: 1028, rows: [['F-207','F-208','F-209'],['F-214','F-215','F-216']] },
+  centerRow10: { x: 592, y: 1028, rows: [['F-210','F-211','F-212','F-213'],['F-217','F-218','F-219','F-220','F-221']] },
+  rightRow1: { x: 1030, y: 0, rows: [['F-222','F-223','F-224','F-225','F-226'],['F-227','F-228','F-229','F-230','F-231']] },
+  rightRow2: { x: 1030, y: 126, rows: [['F-232','F-233','F-234','F-235','F-236'],['F-237','F-238','F-239','F-240','F-241']] },
+  rightRow3: { x: 1030, y: 252, rows: [['F-242','F-243','F-244','F-245','F-246'],['F-247','F-248','F-249','F-250','F-251']] },
+  rightRow4: { x: 1030, y: 398, rows: [['F-252','F-253','F-254','F-255','F-256'],['F-257','F-258','F-259','F-260','F-261']] },
+  rightRow5: { x: 1030, y: 524, rows: [['F-262','F-263','F-264','F-265'],['F-266','F-267','F-268']] },
+  rightRow6: { x: 1030, y: 650, rows: [['F-271','F-272','F-273','F-274','F-275'],['F-276','F-277','F-278','F-279','F-280']] },
+  rightRow7: { x: 1030, y: 776, rows: [['F-281','F-282','F-283','F-284'],['F-285','F-286','F-287','F-288','F-289','F-290']] },
+  rightRow8: { x: 1030, y: 902, rows: [['F-291','F-292','F-293','F-294'],['F-295','F-296','F-297','F-298','F-299']] },
+  farRight: { x: 1450, y: 0, rows: [['F-302'],['F-303'],['F-304'],['F-305'],['F-306'],['F-307'],['F-308'],['F-309'],['F-310'],['F-311'],['F-312'],['F-313'],['F-314'],['F-315'],['F-316'],['F-317'],['F-318'],['F-319'],['F-320']] },
+  bottomLeft: { x: 0, y: 1180, rows: [['F-329','F-330','F-331']] },
+  bottomMid1: { x: 220, y: 1180, rows: [['F-332','F-333','F-334']] },
+  bottomMid2: { x: 440, y: 1180, rows: [['F-335','F-336','F-337']] },
+  bottomMid3: { x: 560, y: 1180, rows: [['F-338','F-339','F-340']] },
+  bottomMid4: { x: 680, y: 1180, rows: [['F-341','F-342','F-343']] },
+  bottomMid5: { x: 800, y: 1180, rows: [['F-344']] },
+  itOffice: { x: 920, y: 1180, rows: [['F-325','F-326','F-327','F-328']] },
+  serverArea: { x: 1380, y: 902, rows: [['F-300','F-301']] },
+};
+
+const ROOMS = [
+  { x: 300, y: 0, w: 60, h: 108, label: 'FIRE\nEXIT' },
+  { x: 300, y: 126, w: 60, h: 108, label: 'EXEC\nCR' },
+  { x: 300, y: 252, w: 60, h: 50, label: 'REST\nROOM' },
+  { x: 300, y: 310, w: 60, h: 70, label: 'EXEC\nCR' },
+  { x: 300, y: 398, w: 60, h: 60, label: 'DOOR' },
+  { x: 1400, y: 0, w: 45, h: 234, label: 'HUDDLE\nROOM' },
+  { x: 1400, y: 902, w: 100, h: 200, label: 'SERVER\nROOM' },
+  { x: 1400, y: 1120, w: 100, h: 80, label: 'ELECTRICAL\nROOM' },
+  { x: 810, y: 1180, w: 90, h: 50, label: 'IT\nOFFICE' },
+];
+
+function generateAllStations() {
+  const s = [];
+  for (let i=1;i<=320;i++) s.push(`F-${String(i).padStart(3,'0')}`);
+  for (let i=1;i<=119;i++) s.push(`L-${String(i).padStart(3,'0')}`);
+  for (let i=1;i<=26;i++) s.push(`O-${String(i).padStart(3,'0')}`);
+  for (let i=1;i<=29;i++) s.push(`W-${String(i).padStart(3,'0')}`);
+  return s;
+}
+const ALL_STATIONS = generateAllStations();
+
+// ==================== OCR SMART PARSER ====================
+// Parses OCR text from Office Beacon ID badges and hostname stickers
+function parseOCRText(rawText, scanMode) {
+  const result = { employeeId: '', employeeName: '', position: '', hostname: '' };
+  const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 1);
+
+  if (scanMode === 'badge') {
+    // ---- BADGE PARSING ----
+    // Look for Employee No / Employee Number pattern
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Employee number: look for "Employee No" line, then next line or same line
+      if (/employee\s*n/i.test(line)) {
+        // Number might be on same line or next line
+        const numMatch = line.match(/(\d{5,8})/);
+        if (numMatch) {
+          result.employeeId = numMatch[1];
+        } else if (i + 1 < lines.length) {
+          const nextMatch = lines[i + 1].match(/(\d{5,8})/);
+          if (nextMatch) result.employeeId = nextMatch[1];
+        }
+      }
+      // Also check standalone 7-digit numbers (employee IDs are typically 7 digits)
+      if (!result.employeeId) {
+        const standaloneNum = line.match(/^(\d{7})$/);
+        if (standaloneNum) result.employeeId = standaloneNum[1];
+      }
+    }
+
+    // Look for name - typically appears after "OFFICE BEACON" and before position
+    // Name pattern: First name on one line, last name on next
+    const skipWords = /^(office|beacon|employee|signature|no\.|philippines)/i;
+    const positionWords = /^(IT\s*Support|Customer\s*Service|Team\s*Lead|Order\s*Entry|Admin|Manager|Developer|Engineer|Representative|Interpreter|Insurance|Counseling|Imaging|Transport)/i;
+
+    let nameLines = [];
+    let foundPosition = false;
+    for (const line of lines) {
+      if (skipWords.test(line)) continue;
+      if (/^\d{5,8}$/.test(line)) continue;
+      if (/signature/i.test(line)) continue;
+
+      // Check if this line is a position/department
+      if (positionWords.test(line)) {
+        result.position = line;
+        foundPosition = true;
+        continue;
+      }
+
+      // If it looks like a name (2+ letter word, no numbers, not too long)
+      if (/^[A-Za-z\s.'-]+$/.test(line) && line.length >= 3 && line.length <= 40 && !foundPosition) {
+        nameLines.push(line);
+      }
+    }
+
+    if (nameLines.length >= 2) {
+      // First line = first name, second = last name (Office Beacon format)
+      result.employeeName = nameLines[0] + ' ' + nameLines[1];
+    } else if (nameLines.length === 1) {
+      result.employeeName = nameLines[0];
+    }
+
+  } else {
+    // ---- HOSTNAME PARSING ----
+    // Look for OBPH-XXXXX pattern (the standard hostname format)
+    const allText = lines.join(' ');
+    
+    // Primary pattern: OBPH-XXXXX
+    const hostnameMatch = allText.match(/OBP[HN][-\s]?[A-Z0-9]{3,10}/i);
+    if (hostnameMatch) {
+      result.hostname = hostnameMatch[0].replace(/\s/g, '').toUpperCase();
+      // Normalize: ensure OBPH- prefix
+      if (result.hostname.startsWith('OBPN')) {
+        result.hostname = 'OBPH' + result.hostname.substring(4);
+      }
+    }
+
+    // Also look for generic hostname patterns like XXXXX-YYYYY
+    if (!result.hostname) {
+      const genericMatch = allText.match(/[A-Z]{2,6}[-][A-Z0-9]{3,10}/i);
+      if (genericMatch) {
+        result.hostname = genericMatch[0].toUpperCase();
+      }
+    }
+
+    // Fallback: any alphanum cluster 5+ chars
+    if (!result.hostname) {
+      for (const line of lines) {
+        if (/^[A-Z0-9-]{5,15}$/i.test(line) && /[A-Z]/i.test(line) && /[0-9]/.test(line)) {
+          result.hostname = line.toUpperCase();
+          break;
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+
+// ==================== CAMERA SCANNER COMPONENT ====================
+function CameraScanner({ onResult, scanMode, setScanMode }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState('');
+  const [lastResults, setLastResults] = useState(null);
+  const [showRaw, setShowRaw] = useState(false);
+  const [rawText, setRawText] = useState('');
+  const workerRef = useRef(null);
+
+  // Initialize Tesseract worker
+  useEffect(() => {
+    return () => {
+      stopCamera();
+      if (workerRef.current) {
+        workerRef.current.terminate();
+      }
+    };
+  }, []);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+      setCameraActive(true);
+    } catch (err) {
+      alert('Camera access denied or unavailable: ' + err.message);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
+  const captureAndScan = async () => {
+    if (!videoRef.current || scanning) return;
+    setScanning(true);
+    setOcrProgress('Capturing image...');
+
+    const canvas = document.getElementById('ocrCanvas');
+    const ctx = canvas.getContext('2d');
+    const video = videoRef.current;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    // Enhance: increase contrast for better OCR
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      // Grayscale
+      const gray = data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114;
+      // Increase contrast
+      const enhanced = gray < 128 ? Math.max(0, gray * 0.6) : Math.min(255, gray * 1.4 + 30);
+      data[i] = data[i+1] = data[i+2] = enhanced;
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    setOcrProgress('Reading text...');
+
+    try {
+      const result = await Tesseract.recognize(canvas, 'eng', {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            setOcrProgress(`Reading... ${Math.round((m.progress || 0) * 100)}%`);
+          }
+        }
+      });
+
+      const text = result.data.text;
+      setRawText(text);
+      const parsed = parseOCRText(text, scanMode);
+      setLastResults(parsed);
+      setOcrProgress('');
+      setScanning(false);
+
+      // Auto-apply if we got good results
+      const hasData = parsed.employeeId || parsed.employeeName || parsed.hostname;
+      if (hasData) {
+        onResult(parsed);
+      }
+    } catch (err) {
+      setOcrProgress('OCR failed: ' + err.message);
+      setScanning(false);
+    }
+  };
+
+  return (
+    <div className="scan-section">
+      <div className="scan-header">
+        <span style={{fontSize: 16}}>📷</span>
+        <span className="scan-header-title">Camera Scanner</span>
+        <button
+          className={`scan-mode-btn ${scanMode === 'badge' ? 'active' : ''}`}
+          onClick={() => setScanMode('badge')}
+        >🪪 ID Badge</button>
+        <button
+          className={`scan-mode-btn ${scanMode === 'hostname' ? 'active' : ''}`}
+          onClick={() => setScanMode('hostname')}
+        >💻 Hostname</button>
+      </div>
+
+      {cameraActive && (
+        <div className="camera-container">
+          <video ref={videoRef} playsInline muted />
+          <div className="camera-overlay">
+            <div className="scan-frame">
+              <span className="scan-frame-label">
+                {scanMode === 'badge' ? 'Align ID Badge here' : 'Align hostname sticker here'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ocrProgress && (
+        <div className="ocr-progress">
+          <div className="ocr-spinner" />
+          {ocrProgress}
+        </div>
+      )}
+
+      <div className="scan-controls">
+        {!cameraActive ? (
+          <button className="capture-btn open-cam" onClick={startCamera}>
+            📷 Open Camera
+          </button>
+        ) : (
+          <>
+            <button
+              className={`capture-btn ${scanning ? 'scanning' : ''}`}
+              onClick={captureAndScan}
+              disabled={scanning}
+            >
+              {scanning ? '⏳ Scanning...' : `⚡ Scan ${scanMode === 'badge' ? 'Badge' : 'Hostname'}`}
+            </button>
+            <button className="capture-btn stop-cam" onClick={stopCamera}>
+              ✕ Close
+            </button>
+          </>
+        )}
+      </div>
+
+      {lastResults && (lastResults.employeeId || lastResults.employeeName || lastResults.hostname || lastResults.position) && (
+        <div className="ocr-results">
+          <div style={{fontSize: 10, color: 'var(--green)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6}}>
+            ✓ Detected Fields {scanMode === 'badge' ? '(Badge)' : '(Device)'}
+          </div>
+          {lastResults.employeeId && (
+            <div className="ocr-result-item">
+              <span className="ocr-result-label">Employee ID</span>
+              <span className="ocr-result-value">{lastResults.employeeId}</span>
+              <button className="ocr-apply-btn" onClick={() => onResult({employeeId: lastResults.employeeId})}>Apply</button>
+            </div>
+          )}
+          {lastResults.employeeName && (
+            <div className="ocr-result-item">
+              <span className="ocr-result-label">Name</span>
+              <span className="ocr-result-value">{lastResults.employeeName}</span>
+              <button className="ocr-apply-btn" onClick={() => onResult({employeeName: lastResults.employeeName})}>Apply</button>
+            </div>
+          )}
+          {lastResults.position && (
+            <div className="ocr-result-item">
+              <span className="ocr-result-label">Position</span>
+              <span className="ocr-result-value">{lastResults.position}</span>
+              <button className="ocr-apply-btn" onClick={() => onResult({position: lastResults.position})}>Apply</button>
+            </div>
+          )}
+          {lastResults.hostname && (
+            <div className="ocr-result-item">
+              <span className="ocr-result-label">Hostname</span>
+              <span className="ocr-result-value">{lastResults.hostname}</span>
+              <button className="ocr-apply-btn" onClick={() => onResult({hostname: lastResults.hostname})}>Apply</button>
+            </div>
+          )}
+          <button className="ocr-raw-toggle" onClick={() => setShowRaw(!showRaw)}>
+            {showRaw ? 'Hide' : 'Show'} raw OCR text
+          </button>
+          {showRaw && <div className="ocr-raw">{rawText}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ==================== STATION MODAL WITH SCANNER ====================
+function StationModal({ stationId, data, onSave, onClear, onClose }) {
+  const [form, setForm] = useState({
+    employeeId: data.employeeId || '',
+    employeeName: data.employeeName || '',
+    hostname: data.hostname || '',
+    position: data.position || '',
+    account: data.account || '',
+    notes: data.notes || '',
+  });
+  const [scanMode, setScanMode] = useState('badge');
+
+  const isOccupied = !!(data.employeeName || data.hostname);
+
+  const handleChange = (field, value) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Handle OCR results - merge into form
+  const handleOCRResult = (parsed) => {
+    setForm(prev => {
+      const updated = { ...prev };
+      if (parsed.employeeId) updated.employeeId = parsed.employeeId;
+      if (parsed.employeeName) updated.employeeName = parsed.employeeName;
+      if (parsed.position) updated.position = parsed.position;
+      if (parsed.hostname) updated.hostname = parsed.hostname;
+      return updated;
+    });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <div className="modal-title">{stationId}</div>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="modal-body">
+          {isOccupied && (
+            <div className="current-assignment">
+              <div className="current-tag">● Current Assignment</div>
+              <div className="current-info">
+                <div><strong>{data.employeeId}</strong> — {data.employeeName || 'No name'}</div>
+                <div>Device: <strong>{data.hostname || 'None'}</strong></div>
+                {data.position && <div>Position: {data.position}</div>}
+                {data.account && <div>Account: {data.account}</div>}
+              </div>
+            </div>
+          )}
+
+          {/* CAMERA SCANNER */}
+          <CameraScanner onResult={handleOCRResult} scanMode={scanMode} setScanMode={setScanMode} />
+
+          {/* FORM FIELDS */}
+          <div className="field">
+            <div className="field-label">Employee ID</div>
+            <input className={`field-input ${form.employeeId ? 'filled' : ''}`} placeholder="e.g. 6003419"
+              value={form.employeeId} onChange={e => handleChange('employeeId', e.target.value)} />
+          </div>
+
+          <div className="field">
+            <div className="field-label">Employee Name</div>
+            <input className={`field-input ${form.employeeName ? 'filled' : ''}`} placeholder="e.g. Marc Justin Evangelista"
+              value={form.employeeName} onChange={e => handleChange('employeeName', e.target.value)} />
+          </div>
+
+          <div className="field">
+            <div className="field-label">Hostname / Device</div>
+            <input className={`field-input ${form.hostname ? 'filled' : ''}`} placeholder="e.g. OBPH-2MTIR"
+              value={form.hostname} onChange={e => handleChange('hostname', e.target.value)} />
+          </div>
+
+          <div className="field">
+            <div className="field-label">Position</div>
+            <input className={`field-input ${form.position ? 'filled' : ''}`} placeholder="e.g. IT Support"
+              value={form.position} onChange={e => handleChange('position', e.target.value)} />
+          </div>
+
+          <div className="field">
+            <div className="field-label">Account / Client</div>
+            <input className={`field-input ${form.account ? 'filled' : ''}`} placeholder="e.g. Linguava"
+              value={form.account} onChange={e => handleChange('account', e.target.value)} />
+          </div>
+
+          <div className="field">
+            <div className="field-label">Notes</div>
+            <input className="field-input" placeholder="Additional notes..."
+              value={form.notes} onChange={e => handleChange('notes', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="modal-actions">
+          {isOccupied && (
+            <button className="btn btn-danger" onClick={() => {
+              if (confirm(`Clear ${stationId}? This will remove the current assignment.`)) onClear(stationId);
+            }}>Clear Station</button>
+          )}
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={() => onSave(stationId, form)}>Save Assignment</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ==================== APP COMPONENT ====================
+function App() {
+  const [view, setView] = useState('map');
+  const [stationData, setStationData] = useState({});
+  const [selectedStation, setSelectedStation] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [zoom, setZoom] = useState(0.85);
+  const [scriptUrl, setScriptUrl] = useState(() => localStorage.getItem('floormap_script_url') || '');
+  const [syncStatus, setSyncStatus] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [activeFloor, setActiveFloor] = useState('F');
+
+  const showToast = useCallback((msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('floormap_data');
+    if (saved) try { setStationData(JSON.parse(saved)); } catch(e) {}
+  }, []);
+
+  useEffect(() => { localStorage.setItem('floormap_data', JSON.stringify(stationData)); }, [stationData]);
+
+  const syncFromSheets = async () => {
+    if (!scriptUrl) { showToast('Set Apps Script URL first', 'error'); return; }
+    setLoading(true); setSyncStatus('Pulling data...');
+    try {
+      const r = await fetch(`${scriptUrl}?action=getAll&sheet=StationMap`);
+      const result = await r.json();
+      if (result.data) {
+        const mapped = {};
+        result.data.forEach(row => {
+          if (row.station) mapped[row.station] = {
+            employeeId: row.employeeId||'', employeeName: row.employeeName||'',
+            hostname: row.hostname||'', notes: row.notes||'',
+            position: row.position||'', account: row.account||'',
+          };
+        });
+        setStationData(mapped);
+        setSyncStatus(`Synced ${Object.keys(mapped).length} stations`);
+        showToast(`Loaded ${Object.keys(mapped).length} station records`);
+      }
+    } catch (err) {
+      setSyncStatus('Sync failed'); showToast('Failed: ' + err.message, 'error');
+    }
+    setLoading(false);
+  };
+
+  const pushToSheets = async (stationId, data) => {
+    if (!scriptUrl) return;
+    try {
+      await fetch(scriptUrl, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'upsert', sheet: 'StationMap', key: 'station', data: { station: stationId, ...data } }),
+      });
+    } catch (err) { console.error('Push failed:', err); }
+  };
+
+  const saveStation = (stationId, data) => {
+    setStationData(prev => ({ ...prev, [stationId]: data }));
+    pushToSheets(stationId, data);
+    showToast(`${stationId} updated`);
+    setSelectedStation(null);
+  };
+
+  const clearStation = (stationId) => {
+    const empty = { employeeId:'', employeeName:'', hostname:'', notes:'', position:'', account:'' };
+    setStationData(prev => ({ ...prev, [stationId]: empty }));
+    pushToSheets(stationId, empty);
+    showToast(`${stationId} cleared`);
+    setSelectedStation(null);
+  };
+
+  const matchesSearch = useCallback((stationId) => {
+    if (!searchQuery) return false;
+    const q = searchQuery.toLowerCase();
+    if (stationId.toLowerCase().includes(q)) return true;
+    const d = stationData[stationId];
+    if (!d) return false;
+    return ['employeeName','employeeId','hostname','account'].some(k => (d[k]||'').toLowerCase().includes(q));
+  }, [searchQuery, stationData]);
+
+  const stats = useMemo(() => {
+    const fStations = ALL_STATIONS.filter(s => s.startsWith(activeFloor + '-'));
+    const occupied = fStations.filter(s => { const d = stationData[s]; return d && (d.employeeName || d.hostname); }).length;
+    return { total: fStations.length, occupied, available: fStations.length - occupied };
+  }, [stationData, activeFloor]);
+
+  useEffect(() => { localStorage.setItem('floormap_script_url', scriptUrl); }, [scriptUrl]);
+
+  return (
+    <div>
+      <div className="topbar">
+        <div className="topbar-logo">⬡ FloorMap v2</div>
+        <div className="topbar-sep" />
+        <div className="topbar-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input placeholder="Search station, employee, device..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+        </div>
+        <div className="topbar-stats">
+          <div className="stat"><div className="stat-dot green" />{stats.occupied} occupied</div>
+          <div className="stat"><div className="stat-dot yellow" />{stats.available} available</div>
+          <div className="stat">{stats.total} total</div>
+        </div>
+        <div className="topbar-sep" />
+        <button className={`topbar-btn ${view==='map'?'active':''}`} onClick={() => setView('map')}>⊞ Map</button>
+        <button className={`topbar-btn ${view==='list'?'active':''}`} onClick={() => setView('list')}>☰ List</button>
+      </div>
+
+      <div className="app-body">
+        <div className="sidebar">
+          <div className="sidebar-section">
+            <div className="sidebar-label">Floor Zones</div>
+            {[
+              { id:'F', label:'Main Floor (F)', color:'#4f8cff', count:320 },
+              { id:'L', label:'L-Zone', color:'#34d399', count:119 },
+              { id:'O', label:'O-Zone', color:'#a78bfa', count:26 },
+              { id:'W', label:'W-Zone', color:'#fb923c', count:29 },
+            ].map(f => (
+              <button key={f.id} className={`floor-btn ${activeFloor===f.id?'active':''}`} onClick={() => setActiveFloor(f.id)}>
+                <div className="floor-icon" style={{background:f.color}} />
+                {f.label} ({f.count})
+              </button>
+            ))}
+          </div>
+          <div className="sidebar-section">
+            <div className="sidebar-label">Legend</div>
+            <div className="legend-item"><div className="legend-swatch" style={{background:'rgba(52,211,153,0.15)',border:'1px solid rgba(52,211,153,0.3)'}} />Occupied</div>
+            <div className="legend-item"><div className="legend-swatch" style={{background:'#1a1d27',border:'1px solid #2d3140',opacity:0.5}} />Available</div>
+            <div className="legend-item"><div className="legend-swatch" style={{background:'transparent',border:'1px solid #fbbf24'}} />Search Match</div>
+          </div>
+          <div className="sidebar-section">
+            <div className="sidebar-label" style={{cursor:'pointer'}} onClick={() => setShowSettings(!showSettings)}>
+              ⚙ Google Sheets {showSettings ? '▾' : '▸'}
+            </div>
+            {showSettings && (
+              <div>
+                <div style={{fontSize:11,color:'var(--text-dim)',marginBottom:6}}>Apps Script URL</div>
+                <input className="settings-input" placeholder="https://script.google..." value={scriptUrl} onChange={e => setScriptUrl(e.target.value)} />
+                <button className="sync-btn" onClick={syncFromSheets} disabled={loading}>{loading ? 'Syncing...' : '↻ Sync from Sheets'}</button>
+                <button className="sync-btn" onClick={() => {
+                  const csv = ALL_STATIONS.filter(s => s.startsWith(activeFloor+'-')).map(s => {
+                    const d = stationData[s]||{};
+                    return `${s},${d.employeeId||''},${d.employeeName||''},${d.hostname||''},${d.position||''},${d.account||''},${d.notes||''}`;
+                  }).join('\n');
+                  const blob = new Blob([`Station,EmployeeID,EmployeeName,Hostname,Position,Account,Notes\n${csv}`],{type:'text/csv'});
+                  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `floormap_${activeFloor}_export.csv`; a.click();
+                  showToast('CSV exported');
+                }} style={{background:'var(--surface2)',color:'var(--text)',border:'1px solid var(--border)'}}>↓ Export CSV</button>
+                {syncStatus && <div className="sync-status">{syncStatus}</div>}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {view === 'map' ? (
+          activeFloor === 'F' ? (
+            <FloorMapView stationData={stationData} searchQuery={searchQuery} matchesSearch={matchesSearch} onSelectStation={setSelectedStation} zoom={zoom} />
+          ) : (
+            <GenericGridView prefix={activeFloor} stationData={stationData} searchQuery={searchQuery} matchesSearch={matchesSearch} onSelectStation={setSelectedStation} />
+          )
+        ) : (
+          <ListView activeFloor={activeFloor} stationData={stationData} searchQuery={searchQuery} onSelectStation={setSelectedStation} />
+        )}
+      </div>
+
+      {view === 'map' && activeFloor === 'F' && (
+        <div className="zoom-controls">
+          <button className="zoom-btn" onClick={() => setZoom(z => Math.min(z+0.1,1.5))}>+</button>
+          <div className="zoom-level">{Math.round(zoom*100)}%</div>
+          <button className="zoom-btn" onClick={() => setZoom(z => Math.max(z-0.1,0.4))}>−</button>
+          <button className="zoom-btn" onClick={() => setZoom(0.85)} style={{fontSize:12}}>⊡</button>
+        </div>
+      )}
+
+      {selectedStation && (
+        <StationModal
+          stationId={selectedStation}
+          data={stationData[selectedStation] || {}}
+          onSave={saveStation}
+          onClear={clearStation}
+          onClose={() => setSelectedStation(null)}
+        />
+      )}
+
+      {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
+      {loading && <div className="loading-overlay"><div className="spinner" /><div style={{color:'var(--text-dim)',fontSize:13}}>Syncing...</div></div>}
+    </div>
+  );
+}
+
+
+// ==================== FLOOR MAP VIEW ====================
+function FloorMapView({ stationData, searchQuery, matchesSearch, onSelectStation, zoom }) {
+  return (
+    <div className="map-container">
+      <div className="map-inner" style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+        {Object.entries(FLOOR_LAYOUT).map(([key, block]) => (
+          <div key={key} className="map-section" style={{ position:'absolute', left: block.x + 24, top: block.y + 24 }}>
+            <div style={{ display:'grid', gridTemplateColumns:`repeat(${Math.max(...block.rows.map(r=>r.length))},68px)`, gap:2 }}>
+              {block.rows.flat().map(sid => {
+                if (sid.startsWith('_')) return <div key={sid} style={{width:68,height:52}} />;
+                const d = stationData[sid]||{};
+                const occ = !!(d.employeeName||d.hostname);
+                const hl = searchQuery && matchesSearch(sid);
+                return (
+                  <div key={sid} className={`station ${occ?'occupied':'available'} ${hl?'highlighted':''}`}
+                    onClick={() => onSelectStation(sid)}
+                    title={`${sid}${d.employeeName?' - '+d.employeeName:''}${d.hostname?' ['+d.hostname+']':''}`}>
+                    <div className="station-id">{sid}</div>
+                    {occ && <><div className="station-name">{d.employeeName||'—'}</div><div className="station-device">{d.hostname||''}</div></>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {ROOMS.map((r,i) => (
+          <div key={i} className="room" style={{left:r.x+24,top:r.y+24,width:r.w,height:r.h}}>
+            <div className="room-label">{r.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+// ==================== GENERIC GRID VIEW ====================
+function GenericGridView({ prefix, stationData, searchQuery, matchesSearch, onSelectStation }) {
+  const stations = ALL_STATIONS.filter(s => s.startsWith(prefix+'-'));
+  return (
+    <div className="map-container" style={{padding:24}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,80px)',gap:4,padding:16}}>
+        {stations.map(sid => {
+          const d = stationData[sid]||{};
+          const occ = !!(d.employeeName||d.hostname);
+          const hl = searchQuery && matchesSearch(sid);
+          return (
+            <div key={sid} className={`station ${occ?'occupied':'available'} ${hl?'highlighted':''}`}
+              style={{width:80,height:58}} onClick={() => onSelectStation(sid)}>
+              <div className="station-id">{sid}</div>
+              {occ && <><div className="station-name">{d.employeeName||'—'}</div><div className="station-device">{d.hostname||''}</div></>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+// ==================== LIST VIEW ====================
+function ListView({ activeFloor, stationData, searchQuery, onSelectStation }) {
+  const stations = ALL_STATIONS.filter(s => s.startsWith(activeFloor+'-'));
+  const filtered = searchQuery
+    ? stations.filter(sid => {
+        const q = searchQuery.toLowerCase();
+        if (sid.toLowerCase().includes(q)) return true;
+        const d = stationData[sid]||{};
+        return ['employeeName','employeeId','hostname','account'].some(k => (d[k]||'').toLowerCase().includes(q));
+      })
+    : stations;
+  return (
+    <div className="list-view">
+      <table className="list-table">
+        <thead><tr><th>Station</th><th>Emp ID</th><th>Name</th><th>Hostname</th><th>Position</th><th>Account</th><th>Notes</th><th>Status</th></tr></thead>
+        <tbody>
+          {filtered.map(sid => {
+            const d = stationData[sid]||{};
+            const occ = !!(d.employeeName||d.hostname);
+            return (
+              <tr key={sid} onClick={() => onSelectStation(sid)}>
+                <td className="td-mono" style={{color:'var(--accent)',fontWeight:600}}>{sid}</td>
+                <td className="td-mono">{d.employeeId||'—'}</td>
+                <td>{d.employeeName||<span style={{color:'var(--text-dim)'}}>Available</span>}</td>
+                <td className="td-mono">{d.hostname||'—'}</td>
+                <td>{d.position||'—'}</td>
+                <td>{d.account||'—'}</td>
+                <td style={{color:'var(--text-dim)',maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.notes||'—'}</td>
+                <td><span className={`status-badge ${occ?'occupied':'available'}`}>{occ?'Occupied':'Available'}</span></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>
