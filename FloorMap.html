@@ -11,12 +11,11 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2d3140;--text:#e4e7ef;--text-dim:#8b90a0;--accent:#4f8cff;--accent-glow:rgba(79,140,255,.15);--green:#34d399;--green-dim:rgba(52,211,153,.12);--red:#f87171;--red-dim:rgba(248,113,113,.12);--yellow:#fbbf24;--yellow-dim:rgba(251,191,36,.12)}
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0)!important;-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}
-*::selection{background:transparent!important;color:inherit!important}
-*::-moz-selection{background:transparent!important;color:inherit!important}
-body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0);outline:none!important}
+*::selection{background:transparent;color:inherit}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;-webkit-user-select:none;user-select:none}
 button{-webkit-user-select:none;user-select:none}
-input,textarea{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}
+input,textarea{-webkit-user-select:text;user-select:text}
 .topbar{height:44px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 10px;gap:8px;z-index:100}
 .topbar-logo{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:13px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;white-space:nowrap}
 .topbar-sep{width:1px;height:20px;background:var(--border)}
@@ -38,17 +37,17 @@ input,textarea{-webkit-user-select:text!important;user-select:text!important;-we
 .sidebar-section{padding:8px 10px;border-bottom:1px solid var(--border)}
 .sidebar-label{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-dim);margin-bottom:5px;font-weight:600;cursor:pointer}
 .floor-btn{display:flex;align-items:center;gap:6px;width:100%;padding:5px 7px;border:none;background:transparent;color:var(--text);font-size:11px;font-family:inherit;cursor:pointer;border-radius:4px;text-align:left}
-.floor-btn:hover,:active{background:var(--surface2)}.floor-btn.active{background:var(--accent-glow);color:var(--accent)}
+.floor-btn:hover,.floor-btn:active{background:var(--surface2)}.floor-btn.active{background:var(--accent-glow);color:var(--accent)}
 .floor-icon{width:7px;height:7px;border-radius:2px}
 .legend-item{display:flex;align-items:center;gap:6px;font-size:10px;padding:2px 0;color:var(--text-dim)}
 .legend-swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0}
 .settings-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--text);font-size:10px;font-family:'IBM Plex Mono',monospace;outline:none;margin-top:3px}
 .settings-input:focus{border-color:var(--accent)}
 .sync-btn{width:100%;padding:5px;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:5px}
-.sync-btn:hover,:active{opacity:.85}.sync-btn:disabled{opacity:.5;cursor:not-allowed}
+.sync-btn:hover,.sync-btn:active{opacity:.85}.sync-btn:disabled{opacity:.5;cursor:not-allowed}
 .sync-status{font-size:9px;color:var(--text-dim);margin-top:3px;font-family:'IBM Plex Mono',monospace}
-.map-container{flex:1;overflow:scroll;position:relative;background:var(--bg);background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.03) 1px,transparent 0);background-size:24px 24px;-webkit-overflow-scrolling:touch}
-.map-inner{min-width:1900px;min-height:1500px;padding:20px;position:relative}
+.map-container{flex:1;overflow:auto;position:relative;background:var(--bg);background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.03) 1px,transparent 0);background-size:24px 24px;-webkit-overflow-scrolling:touch}
+.map-inner{min-width:1900px;min-height:1500px;padding:20px;position:relative;pointer-events:auto}
 .station{width:92px;height:68px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:5px 6px;display:flex;flex-direction:column;justify-content:space-between;transition:all .12s;position:relative;overflow:hidden;-webkit-tap-highlight-color:transparent}
 .station:hover{border-color:var(--accent);box-shadow:0 0 14px var(--accent-glow);z-index:2}
 .station.occupied{background:var(--surface);border-color:var(--green);border-width:2px}
@@ -70,7 +69,7 @@ input,textarea{-webkit-user-select:text!important;user-select:text!important;-we
 .modal-header{padding:14px 18px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .modal-title{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--accent)}
 .modal-close{width:30px;height:30px;border:none;background:var(--surface2);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center}
-.modal-close:hover,:active{background:var(--red-dim);color:var(--red)}
+.modal-close:hover,.modal-close:active{background:var(--red-dim);color:var(--red)}
 .modal-body{padding:14px 18px}
 .field{margin-bottom:10px}.field-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin-bottom:3px;font-weight:600}
 .field-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:14px;font-family:inherit;outline:none}
@@ -78,9 +77,9 @@ input,textarea{-webkit-user-select:text!important;user-select:text!important;-we
 .field-input.filled{border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.04)}
 .modal-actions{padding:10px 18px 14px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border)}
 .btn{padding:7px 18px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:inherit;font-weight:500;cursor:pointer}
-.btn:hover,:active{background:var(--border)}
-.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn-primary:hover,:active{opacity:.85}
-.btn-danger{background:var(--red-dim);border-color:rgba(248,113,113,.3);color:var(--red)}.btn-danger:hover,:active{background:rgba(248,113,113,.2)}
+.btn:hover,.btn:active{background:var(--border)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn-primary:hover,.btn-primary:active{opacity:.85}
+.btn-danger{background:var(--red-dim);border-color:rgba(248,113,113,.3);color:var(--red)}.btn-danger:hover,.btn-danger:active{background:rgba(248,113,113,.2)}
 .current-assignment{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px}
 .current-tag{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--green);font-weight:600;margin-bottom:4px}
 .current-info{font-size:12px;color:var(--text);line-height:1.5}
@@ -89,7 +88,7 @@ input,textarea{-webkit-user-select:text!important;user-select:text!important;-we
 .scan-header{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border);flex-wrap:wrap}
 .scan-header-title{font-size:12px;font-weight:600;color:var(--accent);flex:1}
 .scan-mode-btn{padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);font-size:10px;font-family:inherit;cursor:pointer}
-.scan-mode-btn:hover,:active{border-color:var(--accent);color:var(--text)}
+.scan-mode-btn:hover,.scan-mode-btn:active{border-color:var(--accent);color:var(--text)}
 .scan-mode-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .camera-container{position:relative;width:100%;background:#000}
 .camera-container video{width:100%;height:auto;display:block;max-height:250px;object-fit:cover}
@@ -98,10 +97,10 @@ input,textarea{-webkit-user-select:text!important;user-select:text!important;-we
 .scan-frame-label{font-size:10px;color:var(--accent);opacity:.8;font-family:'IBM Plex Mono',monospace;background:rgba(0,0,0,.6);padding:3px 8px;border-radius:4px}
 .scan-controls{display:flex;gap:6px;padding:7px 10px;justify-content:center;flex-wrap:wrap}
 .capture-btn{padding:6px 16px;border-radius:7px;border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:4px}
-.capture-btn:hover,:active{opacity:.85}.capture-btn:disabled{opacity:.5;cursor:not-allowed}
+.capture-btn:hover,.capture-btn:active{opacity:.85}.capture-btn:disabled{opacity:.5;cursor:not-allowed}
 .capture-btn.scanning{background:var(--yellow);color:#000}
 .capture-btn.open-cam{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
-.capture-btn.open-cam:hover,:active{border-color:var(--accent);color:var(--accent)}
+.capture-btn.open-cam:hover,.capture-btn.open-cam:active{border-color:var(--accent);color:var(--accent)}
 .capture-btn.stop-cam{background:var(--red-dim);color:var(--red);border:1px solid rgba(248,113,113,.3)}
 .ocr-progress{padding:5px 10px;font-size:10px;color:var(--yellow);font-family:'IBM Plex Mono',monospace;display:flex;align-items:center;gap:6px}
 .ocr-spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--yellow);border-radius:50%;animation:spin .8s linear infinite}
@@ -114,10 +113,10 @@ input,textarea{-webkit-user-select:text!important;user-select:text!important;-we
 .ocr-raw-toggle{font-size:9px;color:var(--text-dim);cursor:pointer;padding:2px 0;text-decoration:underline;border:none;background:none;font-family:inherit}
 .ocr-raw{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-dim);background:rgba(0,0,0,.3);padding:5px;border-radius:4px;max-height:60px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:3px}
 .cam-error{padding:6px 10px;font-size:11px;color:var(--red);background:var(--red-dim);border-radius:4px;margin:5px 10px}
-.list-view{flex:1;overflow:scroll;padding:12px;-webkit-overflow-scrolling:touch}
+.list-view{flex:1;overflow:auto;padding:12px;-webkit-overflow-scrolling:touch}
 .list-table{width:100%;border-collapse:collapse;font-size:12px}
 .list-table thead th{text-align:left;padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);font-weight:600;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:5}
-.list-table tbody tr{cursor:pointer}.list-table tbody tr:hover,:active{background:var(--surface2)}
+.list-table tbody tr{cursor:pointer}.list-table tbody tr:hover,.list-table tbody tr:active{background:var(--surface2)}
 .list-table td{padding:6px 8px;border-bottom:1px solid rgba(45,49,64,.5)}
 .td-mono{font-family:'IBM Plex Mono',monospace;font-size:11px}
 .status-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;text-transform:uppercase}
@@ -125,7 +124,7 @@ input,textarea{-webkit-user-select:text!important;user-select:text!important;-we
 .status-badge.available{background:rgba(255,255,255,.05);color:var(--text-dim)}
 .zoom-controls{position:fixed;bottom:14px;right:14px;display:flex;flex-direction:column;gap:3px;z-index:50}
 .zoom-btn{width:32px;height:32px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.zoom-btn:hover,:active{background:var(--accent);color:#fff}
+.zoom-btn:hover,.zoom-btn:active{background:var(--accent);color:#fff}
 .zoom-level{text-align:center;font-size:9px;font-family:'IBM Plex Mono',monospace;color:var(--text-dim)}
 .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);padding:8px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;z-index:2000;animation:toastIn .3s ease;box-shadow:0 8px 32px rgba(0,0,0,.3)}
 .toast.success{border-color:rgba(52,211,153,.4)}.toast.error{border-color:rgba(248,113,113,.4)}
@@ -152,34 +151,6 @@ input,textarea{-webkit-user-select:text!important;user-select:text!important;-we
 <body>
 <canvas id="ocrCanvas"></canvas>
 <div id="root"></div>
-<script>
-// Kill text selection on touch - nuclear approach
-document.addEventListener('selectstart', function(e) {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  e.preventDefault();
-}, {passive: false});
-
-// Clear any selection that somehow happens during touch
-document.addEventListener('touchstart', function() {
-  var sel = window.getSelection();
-  if (sel) sel.removeAllRanges();
-}, {passive: true});
-
-document.addEventListener('touchmove', function() {
-  var sel = window.getSelection();
-  if (sel && sel.rangeCount > 0) sel.removeAllRanges();
-}, {passive: true});
-
-document.addEventListener('touchend', function() {
-  var sel = window.getSelection();
-  if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-    var node = sel.anchorNode && sel.anchorNode.parentElement;
-    if (node && node.tagName !== 'INPUT' && node.tagName !== 'TEXTAREA') {
-      sel.removeAllRanges();
-    }
-  }
-}, {passive: true});
-</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
@@ -420,9 +391,9 @@ function StationModal({stationId, data, onSave, onClear, onClose}){
           h('div',{className:'meta-row'},h('span',{className:'meta-label'},'By'),h('span',{className:'meta-value'},data.modifiedBy||'—'))
         ):null,
         h(CameraScanner,{onResult:onOCR,scanMode,setScanMode}),
-        h('div',{className:'field'},h('div',{className:'field-label'},'Employee ID'),h('input',{className:'field-input'+(form.employeeId?' filled':''),placeholder:'e.g. 6003419',value:form.employeeId,onChange:e=>upd('employeeId',e.target.value)})),
-        h('div',{className:'field'},h('div',{className:'field-label'},'Employee Name'),h('input',{className:'field-input'+(form.employeeName?' filled':''),placeholder:'e.g. Marc Justin Evangelista',value:form.employeeName,onChange:e=>upd('employeeName',e.target.value)})),
-        h('div',{className:'field'},h('div',{className:'field-label'},'Hostname / Device'),h('input',{className:'field-input'+(form.hostname?' filled':''),placeholder:'e.g. OBPH-2MTIR',value:form.hostname,onChange:e=>upd('hostname',e.target.value)})),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Employee ID'),h('input',{className:'field-input'+(form.employeeId?' filled':''),placeholder:'e.g. 1234567',value:form.employeeId,onChange:e=>upd('employeeId',e.target.value)})),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Employee Name'),h('input',{className:'field-input'+(form.employeeName?' filled':''),placeholder:'e.g. Juan Dela Cruz',value:form.employeeName,onChange:e=>upd('employeeName',e.target.value)})),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Hostname / Device'),h('input',{className:'field-input'+(form.hostname?' filled':''),placeholder:'e.g. OBPH-XXXXX',value:form.hostname,onChange:e=>upd('hostname',e.target.value)})),
         h('div',{className:'field'},h('div',{className:'field-label'},'Position'),h('input',{className:'field-input'+(form.position?' filled':''),placeholder:'e.g. IT Support',value:form.position,onChange:e=>upd('position',e.target.value)})),
         h('div',{className:'field'},h('div',{className:'field-label'},'Account / Client'),h('input',{className:'field-input'+(form.account?' filled':''),placeholder:'e.g. Linguava',value:form.account,onChange:e=>upd('account',e.target.value)})),
         h('div',{className:'field'},h('div',{className:'field-label'},'Notes'),h('input',{className:'field-input',placeholder:'Additional notes...',value:form.notes,onChange:e=>upd('notes',e.target.value)}))
@@ -584,7 +555,7 @@ function App(){
       h('div',{className:'login-box'},
         h('h2',null,'⬡ FloorMap v2'),
         h('p',null,'Enter your name to track edits'),
-        h('input',{id:'loginInput',placeholder:'Your name (e.g. Marc Justin)',autoFocus:true,onKeyDown:function(e){if(e.key==='Enter'&&e.target.value.trim())handleLogin(e.target.value.trim());}}),
+        h('input',{id:'loginInput',placeholder:'Enter your name',autoFocus:true,onKeyDown:function(e){if(e.key==='Enter'&&e.target.value.trim())handleLogin(e.target.value.trim());}}),
         h('button',{onClick:function(){var v=document.getElementById('loginInput').value.trim();if(v)handleLogin(v);}},'Continue')
       )
     );
