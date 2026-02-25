@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>FloorMap v2</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1117;--surface:#1a1d27;--surface2:#232733;--border:#2d3140;--text:#e4e7ef;--text-dim:#8b90a0;--accent:#4f8cff;--accent-glow:rgba(79,140,255,.15);--green:#34d399;--green-dim:rgba(52,211,153,.12);--red:#f87171;--red-dim:rgba(248,113,113,.12);--yellow:#fbbf24;--yellow-dim:rgba(251,191,36,.12)}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(0,0,0,0);outline:none!important}
+*::selection{background:transparent;color:inherit}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;-webkit-user-select:none;user-select:none}
+button{-webkit-user-select:none;user-select:none}
+input,textarea{-webkit-user-select:text;user-select:text}
+.topbar{height:44px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 10px;gap:8px;z-index:100}
+.topbar-logo{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:13px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;white-space:nowrap}
+.topbar-sep{width:1px;height:20px;background:var(--border)}
+.sidebar-toggle{width:30px;height:30px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sidebar-toggle:active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.topbar-search{flex:1;max-width:340px;position:relative}
+.topbar-search input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 10px 5px 28px;color:var(--text);font-size:13px;font-family:inherit;outline:none}
+.topbar-search input:focus{border-color:var(--accent)}
+.topbar-search svg{position:absolute;left:8px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--text-dim)}
+.topbar-stats{display:flex;gap:10px;margin-left:auto;font-size:11px;font-family:'IBM Plex Mono',monospace}
+.stat{display:flex;align-items:center;gap:4px}
+.stat-dot{width:6px;height:6px;border-radius:50%}
+.stat-dot.green{background:var(--green)}.stat-dot.yellow{background:var(--yellow)}
+.topbar-btn{padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:11px;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap}
+.topbar-btn:hover,.topbar-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.app-body{display:flex;height:calc(100vh - 44px)}
+.sidebar{width:200px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;transition:width .2s ease,opacity .15s ease;-webkit-overflow-scrolling:touch}
+.sidebar.collapsed{width:0;overflow:hidden;opacity:0;border-right:none;padding:0}
+.sidebar-section{padding:8px 10px;border-bottom:1px solid var(--border)}
+.sidebar-label{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-dim);margin-bottom:5px;font-weight:600;cursor:pointer}
+.floor-btn{display:flex;align-items:center;gap:6px;width:100%;padding:5px 7px;border:none;background:transparent;color:var(--text);font-size:11px;font-family:inherit;cursor:pointer;border-radius:4px;text-align:left}
+.floor-btn:hover,.floor-btn:active{background:var(--surface2)}.floor-btn.active{background:var(--accent-glow);color:var(--accent)}
+.floor-icon{width:7px;height:7px;border-radius:2px}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:10px;padding:2px 0;color:var(--text-dim)}
+.legend-swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+.settings-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--text);font-size:10px;font-family:'IBM Plex Mono',monospace;outline:none;margin-top:3px}
+.settings-input:focus{border-color:var(--accent)}
+.sync-btn{width:100%;padding:5px;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:5px}
+.sync-btn:hover,.sync-btn:active{opacity:.85}.sync-btn:disabled{opacity:.5;cursor:not-allowed}
+.sync-status{font-size:9px;color:var(--text-dim);margin-top:3px;font-family:'IBM Plex Mono',monospace}
+.map-container{flex:1;overflow:auto;position:relative;background:var(--bg);background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.03) 1px,transparent 0);background-size:24px 24px;-webkit-overflow-scrolling:touch}
+.map-inner{min-width:1900px;min-height:1500px;padding:20px;position:relative;pointer-events:auto}
+.station{width:92px;height:68px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:5px 6px;display:flex;flex-direction:column;justify-content:space-between;transition:all .12s;position:relative;overflow:hidden;-webkit-tap-highlight-color:transparent}
+.station:hover{border-color:var(--accent);box-shadow:0 0 14px var(--accent-glow);z-index:2}
+.station.occupied{background:var(--surface);border-color:var(--green);border-width:2px}
+.station.occupied::before{content:'';position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green)}
+.station.available{opacity:1}
+.station.available .station-id{font-size:14px;font-weight:700;color:var(--text);position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+.station.highlighted{border-color:var(--yellow)!important;box-shadow:0 0 16px var(--yellow-dim)!important;z-index:3;animation:pulse 1.5s ease-in-out infinite;opacity:1}
+@keyframes pulse{0%,100%{box-shadow:0 0 8px var(--yellow-dim)}50%{box-shadow:0 0 20px rgba(251,191,36,.3)}}
+.station-id{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.3px}
+.station.occupied .station-id{font-size:9px;color:var(--text-dim)}
+.station-name{font-size:10px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
+.station-device{font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:600;color:var(--green);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.room{border:1px dashed var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.02);position:absolute}
+.room-label{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--text-dim);opacity:.4;text-align:center;line-height:1.4;white-space:pre-line}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:1000;display:flex;align-items:center;justify-content:center;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 24px 48px rgba(0,0,0,.4);animation:slideUp .2s ease;-webkit-overflow-scrolling:touch}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.modal-header{padding:14px 18px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-title{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--accent)}
+.modal-close{width:30px;height:30px;border:none;background:var(--surface2);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center}
+.modal-close:hover,.modal-close:active{background:var(--red-dim);color:var(--red)}
+.modal-body{padding:14px 18px}
+.field{margin-bottom:10px}.field-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin-bottom:3px;font-weight:600}
+.field-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:14px;font-family:inherit;outline:none}
+.field-input:focus{border-color:var(--accent)}.field-input::placeholder{color:var(--text-dim);opacity:.5}
+.field-input.filled{border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.04)}
+.modal-actions{padding:10px 18px 14px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border)}
+.btn{padding:7px 18px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-family:inherit;font-weight:500;cursor:pointer}
+.btn:hover,.btn:active{background:var(--border)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn-primary:hover,.btn-primary:active{opacity:.85}
+.btn-danger{background:var(--red-dim);border-color:rgba(248,113,113,.3);color:var(--red)}.btn-danger:hover,.btn-danger:active{background:rgba(248,113,113,.2)}
+.current-assignment{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px}
+.current-tag{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--green);font-weight:600;margin-bottom:4px}
+.current-info{font-size:12px;color:var(--text);line-height:1.5}
+.current-info strong{color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:11px}
+.scan-section{background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;overflow:hidden}
+.scan-header{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.scan-header-title{font-size:12px;font-weight:600;color:var(--accent);flex:1}
+.scan-mode-btn{padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text-dim);font-size:10px;font-family:inherit;cursor:pointer}
+.scan-mode-btn:hover,.scan-mode-btn:active{border-color:var(--accent);color:var(--text)}
+.scan-mode-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.camera-container{position:relative;width:100%;background:#000}
+.camera-container video{width:100%;height:auto;display:block;max-height:250px;object-fit:cover}
+.camera-overlay{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center}
+.scan-frame{border:2px dashed var(--accent);border-radius:8px;width:80%;height:55%;opacity:.6;display:flex;align-items:center;justify-content:center}
+.scan-frame-label{font-size:10px;color:var(--accent);opacity:.8;font-family:'IBM Plex Mono',monospace;background:rgba(0,0,0,.6);padding:3px 8px;border-radius:4px}
+.scan-controls{display:flex;gap:6px;padding:7px 10px;justify-content:center;flex-wrap:wrap}
+.capture-btn{padding:6px 16px;border-radius:7px;border:none;background:var(--accent);color:#fff;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:4px}
+.capture-btn:hover,.capture-btn:active{opacity:.85}.capture-btn:disabled{opacity:.5;cursor:not-allowed}
+.capture-btn.scanning{background:var(--yellow);color:#000}
+.capture-btn.open-cam{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.capture-btn.open-cam:hover,.capture-btn.open-cam:active{border-color:var(--accent);color:var(--accent)}
+.capture-btn.stop-cam{background:var(--red-dim);color:var(--red);border:1px solid rgba(248,113,113,.3)}
+.ocr-progress{padding:5px 10px;font-size:10px;color:var(--yellow);font-family:'IBM Plex Mono',monospace;display:flex;align-items:center;gap:6px}
+.ocr-spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--yellow);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ocr-results{padding:7px 10px;border-top:1px solid var(--border)}
+.ocr-result-item{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px}
+.ocr-result-label{color:var(--text-dim);min-width:60px;font-size:9px;text-transform:uppercase;letter-spacing:.5px}
+.ocr-result-value{color:var(--green);font-family:'IBM Plex Mono',monospace;font-weight:600}
+.ocr-apply-btn{padding:2px 7px;border-radius:3px;border:1px solid rgba(52,211,153,.3);background:var(--green-dim);color:var(--green);font-size:9px;font-family:inherit;cursor:pointer;margin-left:auto}
+.ocr-raw-toggle{font-size:9px;color:var(--text-dim);cursor:pointer;padding:2px 0;text-decoration:underline;border:none;background:none;font-family:inherit}
+.ocr-raw{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-dim);background:rgba(0,0,0,.3);padding:5px;border-radius:4px;max-height:60px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:3px}
+.cam-error{padding:6px 10px;font-size:11px;color:var(--red);background:var(--red-dim);border-radius:4px;margin:5px 10px}
+.list-view{flex:1;overflow:auto;padding:12px;-webkit-overflow-scrolling:touch}
+.list-table{width:100%;border-collapse:collapse;font-size:12px}
+.list-table thead th{text-align:left;padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);font-weight:600;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:5}
+.list-table tbody tr{cursor:pointer}.list-table tbody tr:hover,.list-table tbody tr:active{background:var(--surface2)}
+.list-table td{padding:6px 8px;border-bottom:1px solid rgba(45,49,64,.5)}
+.td-mono{font-family:'IBM Plex Mono',monospace;font-size:11px}
+.status-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;text-transform:uppercase}
+.status-badge.occupied{background:var(--green-dim);color:var(--green)}
+.status-badge.available{background:rgba(255,255,255,.05);color:var(--text-dim)}
+.zoom-controls{position:fixed;bottom:14px;right:14px;display:flex;flex-direction:column;gap:3px;z-index:50}
+.zoom-btn{width:32px;height:32px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.zoom-btn:hover,.zoom-btn:active{background:var(--accent);color:#fff}
+.zoom-level{text-align:center;font-size:9px;font-family:'IBM Plex Mono',monospace;color:var(--text-dim)}
+.toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);padding:8px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;z-index:2000;animation:toastIn .3s ease;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+.toast.success{border-color:rgba(52,211,153,.4)}.toast.error{border-color:rgba(248,113,113,.4)}
+@keyframes toastIn{from{transform:translateX(-50%) translateY(20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+.loading-overlay{position:fixed;inset:0;background:rgba(15,17,23,.9);z-index:3000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.spinner{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+#ocrCanvas{display:none}
+.login-overlay{position:fixed;inset:0;background:var(--bg);z-index:5000;display:flex;align-items:center;justify-content:center}
+.login-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:30px;width:340px;max-width:90vw;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.login-box h2{font-family:'IBM Plex Mono',monospace;font-size:20px;color:var(--accent);margin-bottom:6px}
+.login-box p{font-size:12px;color:var(--text-dim);margin-bottom:18px}
+.login-box input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:15px;font-family:inherit;outline:none;margin-bottom:12px;text-align:center}
+.login-box input:focus{border-color:var(--accent)}
+.login-box button{width:100%;padding:12px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer}
+.login-box button:disabled{opacity:.4;cursor:not-allowed}
+.meta-row{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:10px;color:var(--text-dim);font-family:'IBM Plex Mono',monospace}
+.meta-label{min-width:55px;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);opacity:.7}
+.meta-value{color:var(--text-dim)}
+@media(max-width:768px){.topbar-stats{display:none}.topbar-sep:nth-child(n+3){display:none}.sidebar{width:160px}.station{width:82px;height:60px}.station-id{font-size:10px}.station-name{font-size:9px}.station-device{font-size:8px}}
+@media(pointer:coarse){.station{min-height:60px}.topbar-btn{min-height:36px;padding:6px 12px}.floor-btn{min-height:38px;padding:7px 10px}.sidebar-toggle{min-width:36px;min-height:36px}.zoom-btn{min-width:40px;min-height:40px;font-size:20px}.capture-btn{min-height:42px;padding:10px 20px;font-size:14px}.scan-mode-btn{min-height:32px;padding:5px 10px}.modal-close{min-width:36px;min-height:36px}.btn{min-height:40px;padding:10px 20px;font-size:14px}.field-input{min-height:44px;font-size:16px}}
+</style>
+</head>
+<body>
+<canvas id="ocrCanvas"></canvas>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// ╔═══════════════════════════════════════════════════════════════╗
+// ║  PASTE YOUR APPS SCRIPT URL BELOW — users won't need to     ║
+// ╚═══════════════════════════════════════════════════════════════╝
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwLMeN1HFReWHFQb-1K1Q8jvTATDN7tdl9tnvN79Ftry_fUv9eEw3TvmAa7ULrp3lp1Rg/exec';
+
+const FLOOR_LAYOUT = {
+  leftTop:{x:0,y:0,rows:[['F-001','F-002','F-003','F-004'],['F-005','F-006','F-007','F-008']]},
+  leftExec1:{x:0,y:148,rows:[['F-009','F-010','F-011','F-012'],['F-013','F-014','F-015','F-016']]},
+  leftMid:{x:0,y:296,rows:[['F-017','F-018','F-019','F-020'],['F-021','F-022','F-023','F-024']]},
+  leftBlock2:{x:0,y:466,rows:[['F-025','F-026','F-027','F-028'],['F-029','F-030','F-031','F-032']]},
+  leftBlock3:{x:0,y:614,rows:[['F-033','F-034','F-035','F-036','F-037'],['F-038','F-039','F-040','F-041','F-042']]},
+  leftBlock4:{x:0,y:762,rows:[['F-043','F-044','F-045','F-046','F-047'],['F-048','F-049','F-050','F-051','F-052']]},
+  leftBlock5:{x:0,y:910,rows:[['F-053','F-054','F-055','F-056','F-057'],['F-058','F-059','F-060','F-061','F-062']]},
+  leftBlock6:{x:0,y:1058,rows:[['F-063','F-064','F-065','F-066','F-067'],['F-068','F-069','F-070','F-071','F-072']]},
+  leftBottom:{x:0,y:1206,rows:[['F-073','F-074','F-075'],['F-076','F-077','F-078']]},
+  centerRow1:{x:460,y:0,rows:[['F-079','F-080','F-081','F-082','F-083','F-084','F-085'],['F-086','F-087','F-088','F-089','F-090','F-091','_X']]},
+  centerRow2:{x:460,y:148,rows:[['F-093','F-094','F-095','F-096','F-097','F-098'],['F-099','F-100','F-101','F-102','F-103','F-104']]},
+  centerRow3:{x:460,y:296,rows:[['F-105','F-106','F-107','F-108','F-109','F-110'],['F-111','F-112','F-113','F-114','F-115','F-116']]},
+  centerRow4:{x:460,y:466,rows:[['F-117','F-118','F-119','F-120','F-121','F-122','F-123','F-124','F-125'],['F-126','F-127','F-128','F-129','F-130','F-131','F-132','F-133','F-134']]},
+  centerRow5:{x:460,y:614,rows:[['F-135','F-136','F-137','F-138','F-139','F-140','F-141','F-142','F-143'],['F-144','F-145','F-146','F-147','F-148','F-149','F-150','F-151','F-152']]},
+  centerRow6:{x:460,y:762,rows:[['F-153','F-154','F-155','F-156','F-157','F-158','F-159','F-160','F-161'],['F-162','F-163','F-164','F-165','F-166','F-167','F-168','F-169','F-170']]},
+  centerRow7:{x:460,y:910,rows:[['F-171','F-172','F-173','F-174','F-175','F-176','F-177','F-178','F-179'],['F-180','F-181','F-182','F-183','F-184','F-185','F-186','F-187','F-188']]},
+  centerRow8:{x:460,y:1058,rows:[['F-189','F-190','F-191','F-192','F-193','F-194','F-195','F-196','F-197'],['F-198','F-199','F-200','F-201','F-202','F-203','F-204','F-205','F-206']]},
+  centerRow9:{x:460,y:1206,rows:[['F-207','F-208','F-209'],['F-214','F-215','F-216']]},
+  centerRow10:{x:735,y:1206,rows:[['F-210','F-211','F-212','F-213'],['F-217','F-218','F-219','F-220','F-221']]},
+  rightRow1:{x:1290,y:0,rows:[['F-222','F-223','F-224','F-225','F-226'],['F-227','F-228','F-229','F-230','F-231']]},
+  rightRow2:{x:1290,y:148,rows:[['F-232','F-233','F-234','F-235','F-236'],['F-237','F-238','F-239','F-240','F-241']]},
+  rightRow3:{x:1290,y:296,rows:[['F-242','F-243','F-244','F-245','F-246'],['F-247','F-248','F-249','F-250','F-251']]},
+  rightRow4:{x:1290,y:466,rows:[['F-252','F-253','F-254','F-255','F-256'],['F-257','F-258','F-259','F-260','F-261']]},
+  rightRow5:{x:1290,y:614,rows:[['F-262','F-263','F-264','F-265'],['F-266','F-267','F-268']]},
+  rightRow6:{x:1290,y:762,rows:[['F-271','F-272','F-273','F-274','F-275'],['F-276','F-277','F-278','F-279','F-280']]},
+  rightRow7:{x:1290,y:910,rows:[['F-281','F-282','F-283','F-284'],['F-285','F-286','F-287','F-288','F-289','F-290']]},
+  rightRow8:{x:1290,y:1058,rows:[['F-291','F-292','F-293','F-294'],['F-295','F-296','F-297','F-298','F-299']]},
+  farRight:{x:1760,y:0,rows:[['F-302'],['F-303'],['F-304'],['F-305'],['F-306'],['F-307'],['F-308'],['F-309'],['F-310'],['F-311'],['F-312'],['F-313'],['F-314'],['F-315'],['F-316'],['F-317'],['F-318'],['F-319'],['F-320']]},
+  bottomLeft:{x:0,y:1390,rows:[['F-329','F-330','F-331']]},
+  bottomMid1:{x:280,y:1390,rows:[['F-332','F-333','F-334']]},
+  bottomMid2:{x:560,y:1390,rows:[['F-335','F-336','F-337']]},
+  bottomMid3:{x:840,y:1390,rows:[['F-338','F-339','F-340']]},
+  bottomMid4:{x:1030,y:1390,rows:[['F-341','F-342','F-343']]},
+  bottomMid5:{x:1130,y:1390,rows:[['F-344']]},
+  itOffice:{x:1230,y:1390,rows:[['F-325','F-326','F-327','F-328']]},
+  serverArea:{x:1660,y:1058,rows:[['F-300','F-301']]},
+};
+
+const ROOMS = [
+  {x:375,y:0,w:65,h:130,label:'FIRE\nEXIT'},{x:375,y:148,w:65,h:130,label:'EXEC\nCR'},
+  {x:375,y:296,w:65,h:60,label:'REST\nROOM'},{x:375,y:370,w:65,h:76,label:'EXEC\nCR'},
+  {x:375,y:466,w:65,h:65,label:'DOOR'},{x:1710,y:0,w:44,h:280,label:'HUDDLE\nROOM'},
+  {x:1710,y:1058,w:110,h:240,label:'SERVER\nROOM'},{x:1710,y:1310,w:110,h:80,label:'ELECTRICAL\nROOM'},
+  {x:1130,y:1390,w:90,h:60,label:'IT\nOFFICE'},
+];
+
+function genStations(){const s=[];for(let i=1;i<=320;i++)s.push('F-'+String(i).padStart(3,'0'));for(let i=1;i<=119;i++)s.push('L-'+String(i).padStart(3,'0'));for(let i=1;i<=26;i++)s.push('O-'+String(i).padStart(3,'0'));for(let i=1;i<=29;i++)s.push('W-'+String(i).padStart(3,'0'));return s;}
+const ALL_STATIONS = genStations();
+
+function parseOCR(raw, mode){
+  const R={employeeId:'',employeeName:'',position:'',hostname:'',candidates:[]};
+  const lines=raw.split('\n').map(l=>l.trim()).filter(l=>l.length>1);
+  if(mode==='badge'){
+    for(let i=0;i<lines.length;i++){const l=lines[i];if(/employee\s*n/i.test(l)){const m=l.match(/(\d{5,8})/);if(m)R.employeeId=m[1];else if(i+1<lines.length){const n=lines[i+1].match(/(\d{5,8})/);if(n)R.employeeId=n[1];}}if(!R.employeeId){const s=l.match(/^(\d{7})$/);if(s)R.employeeId=s[1];}}
+    const skip=/^(office|beacon|employee|signature|no\.|philippines)/i;
+    const pos=/^(IT\s*Support|Customer\s*Service|Team\s*Lead|Order\s*Entry|Admin|Manager|Developer|Engineer|Representative|Interpreter|Insurance|Counseling|Imaging|Transport)/i;
+    let names=[],fp=false;
+    for(const l of lines){if(skip.test(l))continue;if(/^\d{5,8}$/.test(l))continue;if(/signature/i.test(l))continue;if(pos.test(l)){R.position=l;fp=true;continue;}if(/^[A-Za-z\s.'-]+$/.test(l)&&l.length>=3&&l.length<=40&&!fp)names.push(l);}
+    if(names.length>=2)R.employeeName=names[0]+' '+names[1];else if(names.length===1)R.employeeName=names[0];
+  }else{
+    const all=lines.join(' ');
+    let m=all.match(/OBP[HN][-\s]?[A-Z0-9]{3,10}/i);
+    if(m){R.hostname=m[0].replace(/\s/g,'').toUpperCase();if(R.hostname.startsWith('OBPN'))R.hostname='OBPH'+R.hostname.substring(4);}
+    if(!R.hostname){m=all.match(/[A-Z]{2,6}[-][A-Z0-9]{3,10}/i);if(m)R.hostname=m[0].toUpperCase();}
+    if(!R.hostname){for(const l of lines){if(/^[A-Z0-9-]{5,15}$/i.test(l)&&/[A-Z]/i.test(l)&&/[0-9]/.test(l)){R.hostname=l.toUpperCase();break;}}}
+    // Always collect candidate lines so user can pick if auto-detect fails
+    R.candidates=lines.filter(l=>l.length>=2&&!/^\s*$/.test(l)).map(l=>l.replace(/\s+/g,' ').trim());
+  }
+  return R;
+}
+
+// ==================== CAMERA SCANNER ====================
+function CameraScanner({onResult, scanMode, setScanMode}){
+  const videoRef=useRef(null), streamRef=useRef(null);
+  const [camOn,setCamOn]=useState(false);
+  const [scanning,setScanning]=useState(false);
+  const [progress,setProgress]=useState('');
+  const [results,setResults]=useState(null);
+  const [showRaw,setShowRaw]=useState(false);
+  const [rawText,setRawText]=useState('');
+  const [camErr,setCamErr]=useState('');
+
+  useEffect(()=>()=>{stopCam();},[]);
+
+  // When camOn becomes true, attach the stream to the video
+  useEffect(function(){
+    if(camOn && streamRef.current && videoRef.current){
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(function(){});
+    }
+  },[camOn]);
+
+  const startCam=async()=>{
+    setCamErr('');
+    // Check HTTPS
+    if(location.protocol==='http:' && location.hostname!=='localhost' && location.hostname!=='127.0.0.1'){
+      setCamErr('Camera requires HTTPS. Your URL must start with https://');
+      return;
+    }
+    // Check API exists
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      setCamErr('Camera API not available in this browser. Try Chrome or Safari.');
+      return;
+    }
+    try{
+      var stream = null;
+      // Try environment (rear) camera first
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false
+        });
+      }catch(e1){
+        // Fallback: any camera, simplest constraints
+        try{
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }catch(e2){
+          throw e2;
+        }
+      }
+      streamRef.current = stream;
+      // Set camOn which triggers the useEffect to attach stream
+      setCamOn(true);
+    }catch(err){
+      var msg = 'Camera error: ' + err.message;
+      if(err.name==='NotAllowedError' || err.name==='PermissionDeniedError')
+        msg = 'Camera permission denied. Tap the lock icon in your address bar → allow Camera → reload the page.';
+      else if(err.name==='NotFoundError' || err.name==='DevicesNotFoundError')
+        msg = 'No camera found on this device.';
+      else if(err.name==='NotReadableError' || err.name==='TrackStartError')
+        msg = 'Camera is busy. Close other apps using the camera and try again.';
+      else if(err.name==='OverconstrainedError')
+        msg = 'Camera constraints not supported. Trying basic mode...';
+      setCamErr(msg);
+    }
+  };
+
+  const stopCam=()=>{
+    if(streamRef.current){streamRef.current.getTracks().forEach(t=>t.stop());streamRef.current=null;}
+    if(videoRef.current){videoRef.current.srcObject=null;}
+    setCamOn(false);
+  };
+
+  const capture=async()=>{
+    if(!videoRef.current||scanning||!videoRef.current.videoWidth)return;
+    setScanning(true);setProgress('Capturing...');
+    const c=document.getElementById('ocrCanvas'),ctx=c.getContext('2d'),v=videoRef.current;
+    c.width=v.videoWidth;c.height=v.videoHeight;
+    ctx.drawImage(v,0,0);
+    const id=ctx.getImageData(0,0,c.width,c.height),d=id.data;
+    for(let i=0;i<d.length;i+=4){const g=d[i]*.299+d[i+1]*.587+d[i+2]*.114;const e=g<128?Math.max(0,g*.6):Math.min(255,g*1.4+30);d[i]=d[i+1]=d[i+2]=e;}
+    ctx.putImageData(id,0,0);
+    setProgress('Reading text...');
+    try{
+      const r=await Tesseract.recognize(c,'eng',{logger:m=>{if(m.status==='recognizing text')setProgress('Reading... '+Math.round((m.progress||0)*100)+'%');}});
+      const text=r.data.text;setRawText(text);
+      const parsed=parseOCR(text,scanMode);
+      setResults(parsed);setProgress('');setScanning(false);
+      if(parsed.employeeId||parsed.employeeName||parsed.hostname)onResult(parsed);
+    }catch(e){setProgress('OCR failed: '+e.message);setScanning(false);}
+  };
+
+  return React.createElement('div',{className:'scan-section'},
+    React.createElement('div',{className:'scan-header'},
+      React.createElement('span',{style:{fontSize:14}},'📷'),
+      React.createElement('span',{className:'scan-header-title'},'Camera Scanner'),
+      React.createElement('button',{className:'scan-mode-btn'+(scanMode==='badge'?' active':''),onClick:()=>setScanMode('badge')},'🪪 Badge'),
+      React.createElement('button',{className:'scan-mode-btn'+(scanMode==='hostname'?' active':''),onClick:()=>setScanMode('hostname')},'💻 Host')
+    ),
+    camErr?React.createElement('div',{className:'cam-error'},camErr):null,
+    React.createElement('div',{className:'camera-container',style:{display:camOn?'block':'none'}},
+      React.createElement('video',{
+        ref:videoRef,
+        playsInline:true,
+        autoPlay:true,
+        muted:true,
+        webkit_playsinline:'true',
+        style:{width:'100%',height:'auto',maxHeight:250,display:'block',objectFit:'cover'}
+      }),
+      React.createElement('div',{className:'camera-overlay'},
+        React.createElement('div',{className:'scan-frame'},
+          React.createElement('span',{className:'scan-frame-label'},scanMode==='badge'?'Align ID Badge':'Align hostname sticker')
+        )
+      )
+    ),
+    progress?React.createElement('div',{className:'ocr-progress'},React.createElement('div',{className:'ocr-spinner'}),progress):null,
+    React.createElement('div',{className:'scan-controls'},
+      !camOn?React.createElement('button',{className:'capture-btn open-cam',onClick:startCam},'📷 Open Camera'):
+      React.createElement(React.Fragment,null,
+        React.createElement('button',{className:'capture-btn'+(scanning?' scanning':''),onClick:capture,disabled:scanning},scanning?'⏳ Scanning...':'⚡ Scan '+(scanMode==='badge'?'Badge':'Hostname')),
+        React.createElement('button',{className:'capture-btn stop-cam',onClick:stopCam},'✕ Close')
+      )
+    ),
+    results&&(results.employeeId||results.employeeName||results.hostname||results.position||(results.candidates&&results.candidates.length))?
+      React.createElement('div',{className:'ocr-results'},
+        results.hostname?React.createElement('div',{style:{fontSize:9,color:'var(--green)',fontWeight:600,textTransform:'uppercase',letterSpacing:1,marginBottom:3}},'✓ Hostname Detected'):
+        results.employeeId||results.employeeName?React.createElement('div',{style:{fontSize:9,color:'var(--green)',fontWeight:600,textTransform:'uppercase',letterSpacing:1,marginBottom:3}},'✓ Detected (Badge)'):
+        results.candidates&&results.candidates.length?React.createElement('div',{style:{fontSize:9,color:'var(--yellow)',fontWeight:600,textTransform:'uppercase',letterSpacing:1,marginBottom:3}},'⚠ No hostname pattern found — tap a line to use it'):null,
+        results.employeeId?React.createElement('div',{className:'ocr-result-item'},React.createElement('span',{className:'ocr-result-label'},'ID'),React.createElement('span',{className:'ocr-result-value'},results.employeeId),React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({employeeId:results.employeeId})},'Apply')):null,
+        results.employeeName?React.createElement('div',{className:'ocr-result-item'},React.createElement('span',{className:'ocr-result-label'},'Name'),React.createElement('span',{className:'ocr-result-value'},results.employeeName),React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({employeeName:results.employeeName})},'Apply')):null,
+        results.position?React.createElement('div',{className:'ocr-result-item'},React.createElement('span',{className:'ocr-result-label'},'Position'),React.createElement('span',{className:'ocr-result-value'},results.position),React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({position:results.position})},'Apply')):null,
+        results.hostname?React.createElement('div',{className:'ocr-result-item'},React.createElement('span',{className:'ocr-result-label'},'Host'),React.createElement('span',{className:'ocr-result-value'},results.hostname),React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({hostname:results.hostname})},'Apply')):null,
+        !results.hostname&&results.candidates&&results.candidates.length?React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:2,marginTop:2}},
+          results.candidates.map((line,i)=>React.createElement('div',{key:i,className:'ocr-result-item',style:{cursor:'pointer',padding:'3px 4px',borderRadius:4,background:'rgba(255,255,255,.03)'}},
+            React.createElement('span',{style:{color:'var(--text)',fontFamily:"'IBM Plex Mono',monospace",fontSize:11,flex:1,wordBreak:'break-all'}},line),
+            React.createElement('button',{className:'ocr-apply-btn',onClick:()=>onResult({hostname:line.replace(/\s+/g,'').toUpperCase()})},'Use as Host')
+          ))
+        ):null,
+        React.createElement('button',{className:'ocr-raw-toggle',onClick:()=>setShowRaw(!showRaw)},showRaw?'Hide raw':'Show raw'),
+        showRaw?React.createElement('div',{className:'ocr-raw'},rawText):null
+      ):null
+  );
+}
+
+// ==================== STATION MODAL ====================
+function StationModal({stationId, data, onSave, onClear, onClose}){
+  const [form,setForm]=useState({employeeId:data.employeeId||'',employeeName:data.employeeName||'',hostname:data.hostname||'',position:data.position||'',account:data.account||'',notes:data.notes||''});
+  const [scanMode,setScanMode]=useState('badge');
+  const isOcc=!!(data.employeeName||data.hostname);
+  const upd=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const onOCR=(p)=>setForm(prev=>{const u={...prev};if(p.employeeId)u.employeeId=p.employeeId;if(p.employeeName)u.employeeName=p.employeeName;if(p.position)u.position=p.position;if(p.hostname)u.hostname=p.hostname;return u;});
+
+  const h=React.createElement;
+  return h('div',{className:'modal-overlay',onClick:e=>{if(e.target===e.currentTarget)onClose();}},
+    h('div',{className:'modal'},
+      h('div',{className:'modal-header'},h('div',{className:'modal-title'},stationId),h('button',{className:'modal-close',onClick:onClose},'✕')),
+      h('div',{className:'modal-body'},
+        isOcc?h('div',{className:'current-assignment'},
+          h('div',{className:'current-tag'},'● Current Assignment'),
+          h('div',{className:'current-info'},
+            h('div',null,h('strong',null,data.employeeId),' — ',data.employeeName||'No name'),
+            h('div',null,'Device: ',h('strong',null,data.hostname||'None')),
+            data.position?h('div',null,'Position: ',data.position):null,
+            data.account?h('div',null,'Account: ',data.account):null
+          )
+        ):null,
+        (data.lastModified||data.modifiedBy)?h('div',{style:{marginBottom:12}},
+          h('div',{className:'meta-row'},h('span',{className:'meta-label'},'Modified'),h('span',{className:'meta-value'},data.lastModified||'—')),
+          h('div',{className:'meta-row'},h('span',{className:'meta-label'},'By'),h('span',{className:'meta-value'},data.modifiedBy||'—'))
+        ):null,
+        h(CameraScanner,{onResult:onOCR,scanMode,setScanMode}),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Employee ID'),h('input',{className:'field-input'+(form.employeeId?' filled':''),placeholder:'e.g. 1234567',value:form.employeeId,onChange:e=>upd('employeeId',e.target.value)})),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Employee Name'),h('input',{className:'field-input'+(form.employeeName?' filled':''),placeholder:'e.g. Juan Dela Cruz',value:form.employeeName,onChange:e=>upd('employeeName',e.target.value)})),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Hostname / Device'),h('input',{className:'field-input'+(form.hostname?' filled':''),placeholder:'e.g. OBPH-XXXXX',value:form.hostname,onChange:e=>upd('hostname',e.target.value)})),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Position'),h('input',{className:'field-input'+(form.position?' filled':''),placeholder:'e.g. IT Support',value:form.position,onChange:e=>upd('position',e.target.value)})),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Account / Client'),h('input',{className:'field-input'+(form.account?' filled':''),placeholder:'e.g. Linguava',value:form.account,onChange:e=>upd('account',e.target.value)})),
+        h('div',{className:'field'},h('div',{className:'field-label'},'Notes'),h('input',{className:'field-input',placeholder:'Additional notes...',value:form.notes,onChange:e=>upd('notes',e.target.value)}))
+      ),
+      h('div',{className:'modal-actions'},
+        isOcc?h('button',{className:'btn btn-danger',onClick:()=>{if(confirm('Clear '+stationId+'?'))onClear(stationId);}},'Clear'):null,
+        h('button',{className:'btn',onClick:onClose},'Cancel'),
+        h('button',{className:'btn btn-primary',onClick:()=>onSave(stationId,form)},'Save')
+      )
+    )
+  );
+}
+
+// ==================== FLOOR MAP VIEW ====================
+function FloorMapView({stationData,searchQuery,matchesSearch,onSelect,zoom}){
+  const h=React.createElement;
+  return h('div',{className:'map-container'},
+    h('div',{className:'map-inner',style:{zoom:zoom}},
+      Object.entries(FLOOR_LAYOUT).map(function([key,block]){
+        const maxCols=Math.max(...block.rows.map(r=>r.length));
+        return h('div',{key,style:{position:'absolute',left:block.x+20,top:block.y+20}},
+          h('div',{style:{display:'grid',gridTemplateColumns:'repeat('+maxCols+',92px)',gap:'3px'}},
+            block.rows.flat().map(function(sid){
+              if(sid.startsWith('_'))return h('div',{key:sid,style:{width:92,height:68}});
+              var d=stationData[sid]||{};
+              var occ=!!(d.employeeName||d.hostname);
+              var hl=searchQuery&&matchesSearch(sid);
+              return h('div',{key:sid,className:'station'+(occ?' occupied':' available')+(hl?' highlighted':''),onClick:function(){onSelect(sid);},title:sid+(d.employeeName?' - '+d.employeeName:'')+(d.hostname?' ['+d.hostname+']':'')},
+                h('div',{className:'station-id'},sid),
+                occ?h(React.Fragment,null,h('div',{className:'station-name'},d.employeeName||'—'),h('div',{className:'station-device'},d.hostname||'')):null
+              );
+            })
+          )
+        );
+      }),
+      ROOMS.map(function(r,i){return h('div',{key:i,className:'room',style:{left:r.x+20,top:r.y+20,width:r.w,height:r.h}},h('div',{className:'room-label'},r.label));})
+    )
+  );
+}
+
+// ==================== GENERIC GRID VIEW ====================
+function GenericGridView({prefix,stationData,searchQuery,matchesSearch,onSelect}){
+  const h=React.createElement;
+  const stations=ALL_STATIONS.filter(function(s){return s.startsWith(prefix+'-');});
+  return h('div',{className:'map-container',style:{padding:20}},
+    h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,92px)',gap:'4px',padding:10}},
+      stations.map(function(sid){
+        var d=stationData[sid]||{};var occ=!!(d.employeeName||d.hostname);var hl=searchQuery&&matchesSearch(sid);
+        return h('div',{key:sid,className:'station'+(occ?' occupied':' available')+(hl?' highlighted':''),style:{width:92,height:68},onClick:function(){onSelect(sid);}},
+          h('div',{className:'station-id'},sid),occ?h(React.Fragment,null,h('div',{className:'station-name'},d.employeeName||'—'),h('div',{className:'station-device'},d.hostname||'')):null);
+      })
+    )
+  );
+}
+
+// ==================== LIST VIEW ====================
+function ListView({activeFloor,stationData,searchQuery,onSelect}){
+  const h=React.createElement;
+  const stations=ALL_STATIONS.filter(function(s){return s.startsWith(activeFloor+'-');});
+  const filtered=searchQuery?stations.filter(function(sid){var q=searchQuery.toLowerCase();if(sid.toLowerCase().includes(q))return true;var d=stationData[sid]||{};return['employeeName','employeeId','hostname','account'].some(function(k){return(d[k]||'').toLowerCase().includes(q);});}):stations;
+  return h('div',{className:'list-view'},
+    h('table',{className:'list-table'},
+      h('thead',null,h('tr',null,['Station','Emp ID','Name','Hostname','Position','Account','Modified','By','Status'].map(function(t){return h('th',{key:t},t);}))),
+      h('tbody',null,filtered.map(function(sid){
+        var d=stationData[sid]||{};var occ=!!(d.employeeName||d.hostname);
+        return h('tr',{key:sid,onClick:function(){onSelect(sid);}},
+          h('td',{className:'td-mono',style:{color:'var(--accent)',fontWeight:600}},sid),
+          h('td',{className:'td-mono'},d.employeeId||'—'),
+          h('td',null,d.employeeName||h('span',{style:{color:'var(--text-dim)'}},'Available')),
+          h('td',{className:'td-mono'},d.hostname||'—'),
+          h('td',null,d.position||'—'),
+          h('td',null,d.account||'—'),
+          h('td',{className:'td-mono',style:{fontSize:10,color:'var(--text-dim)'}},d.lastModified||'—'),
+          h('td',{style:{fontSize:11,color:'var(--text-dim)'}},d.modifiedBy||'—'),
+          h('td',null,h('span',{className:'status-badge '+(occ?'occupied':'available')},occ?'Occupied':'Available'))
+        );
+      }))
+    )
+  );
+}
+
+// ==================== APP ====================
+function App(){
+  const h=React.createElement;
+  const [currentUser,setCurrentUser]=useState(function(){return localStorage.getItem('fm_user')||'';});
+  const [view,setView]=useState('map');
+  const [data,setData]=useState({});
+  const [selected,setSelected]=useState(null);
+  const [search,setSearch]=useState('');
+  const [zoom,setZoom]=useState(0.82);
+  const [scriptUrl,setScriptUrl]=useState(function(){return SCRIPT_URL||localStorage.getItem('fm_url')||'';});
+  const [syncStatus,setSyncStatus]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [toast,setToast]=useState(null);
+  const [showSettings,setShowSettings]=useState(false);
+  const [floor,setFloor]=useState('F');
+  const [sidebarOpen,setSidebarOpen]=useState(true);
+
+  const showToast=useCallback(function(msg,type){setToast({msg,type:type||'success'});setTimeout(function(){setToast(null);},3000);},[]);
+
+  useEffect(function(){var s=localStorage.getItem('fm_data');if(s)try{setData(JSON.parse(s));}catch(e){}},[]);
+  useEffect(function(){localStorage.setItem('fm_data',JSON.stringify(data));},[data]);
+  useEffect(function(){if(scriptUrl&&scriptUrl!==SCRIPT_URL)localStorage.setItem('fm_url',scriptUrl);},[scriptUrl]);
+
+  // Auto-sync on load if URL is set
+  useEffect(function(){
+    if(scriptUrl){
+      fetch(scriptUrl+'?action=getAll&sheet=StationMap').then(function(r){return r.json();}).then(function(result){
+        if(result.data&&result.data.length){
+          var mapped={};
+          result.data.forEach(function(row){if(row.station)mapped[row.station]={employeeId:row.employeeId||'',employeeName:row.employeeName||'',hostname:row.hostname||'',notes:row.notes||'',position:row.position||'',account:row.account||'',lastModified:row.lastModified||'',modifiedBy:row.modifiedBy||''};});
+          setData(mapped);
+        }
+      }).catch(function(){});
+    }
+  },[]);
+
+  var syncFromSheets=function(){
+    if(!scriptUrl){showToast('Set Script URL first','error');return;}
+    setLoading(true);setSyncStatus('Pulling...');
+    fetch(scriptUrl+'?action=getAll&sheet=StationMap').then(function(r){return r.json();}).then(function(result){
+      if(result.data){var mapped={};result.data.forEach(function(row){if(row.station)mapped[row.station]={employeeId:row.employeeId||'',employeeName:row.employeeName||'',hostname:row.hostname||'',notes:row.notes||'',position:row.position||'',account:row.account||'',lastModified:row.lastModified||'',modifiedBy:row.modifiedBy||''};});setData(mapped);setSyncStatus('Synced '+Object.keys(mapped).length);showToast('Loaded '+Object.keys(mapped).length+' stations');}
+      setLoading(false);
+    }).catch(function(err){setSyncStatus('Failed');showToast('Sync failed: '+err.message,'error');setLoading(false);});
+  };
+
+  var pushToSheets=function(sid,d){
+    if(!scriptUrl)return;
+    fetch(scriptUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'upsert',sheet:'StationMap',key:'station',data:{station:sid,employeeId:d.employeeId,employeeName:d.employeeName,hostname:d.hostname,position:d.position,account:d.account,notes:d.notes,lastModified:d.lastModified||'',modifiedBy:d.modifiedBy||''}})}).catch(function(e){console.error('Push fail:',e);});
+  };
+
+  var saveStation=function(sid,d){var stamped=Object.assign({},d,{lastModified:new Date().toLocaleString(),modifiedBy:currentUser});setData(function(prev){return Object.assign({},prev,{[sid]:stamped});});pushToSheets(sid,stamped);showToast(sid+' updated');setSelected(null);};
+  var clearStation=function(sid){var empty={employeeId:'',employeeName:'',hostname:'',notes:'',position:'',account:'',lastModified:new Date().toLocaleString(),modifiedBy:currentUser+' (cleared)'};setData(function(prev){return Object.assign({},prev,{[sid]:empty});});pushToSheets(sid,empty);showToast(sid+' cleared');setSelected(null);};
+
+  var matchesSearch=useCallback(function(sid){
+    if(!search)return false;var q=search.toLowerCase();if(sid.toLowerCase().includes(q))return true;
+    var d=data[sid];if(!d)return false;
+    return['employeeName','employeeId','hostname','account'].some(function(k){return(d[k]||'').toLowerCase().includes(q);});
+  },[search,data]);
+
+  var stats=useMemo(function(){
+    var fs=ALL_STATIONS.filter(function(s){return s.startsWith(floor+'-');});
+    var occ=fs.filter(function(s){var d=data[s];return d&&(d.employeeName||d.hostname);}).length;
+    return{total:fs.length,occupied:occ,available:fs.length-occ};
+  },[data,floor]);
+
+  var exportCSV=function(){
+    var csv=ALL_STATIONS.filter(function(s){return s.startsWith(floor+'-');}).map(function(s){var d=data[s]||{};return s+','+(d.employeeId||'')+','+(d.employeeName||'')+','+(d.hostname||'')+','+(d.position||'')+','+(d.account||'')+','+(d.notes||'');}).join('\n');
+    var blob=new Blob(['Station,EmployeeID,EmployeeName,Hostname,Position,Account,Notes\n'+csv],{type:'text/csv'});
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='floormap_'+floor+'_export.csv';a.click();showToast('CSV exported');
+  };
+
+  var handleLogin=function(name){localStorage.setItem('fm_user',name);setCurrentUser(name);};
+  var handleLogout=function(){localStorage.removeItem('fm_user');setCurrentUser('');};
+
+  // LOGIN SCREEN
+  if(!currentUser){
+    return h('div',{className:'login-overlay'},
+      h('div',{className:'login-box'},
+        h('h2',null,'⬡ FloorMap v2'),
+        h('p',null,'Enter your name to track edits'),
+        h('input',{id:'loginInput',placeholder:'Enter your name',autoFocus:true,onKeyDown:function(e){if(e.key==='Enter'&&e.target.value.trim())handleLogin(e.target.value.trim());}}),
+        h('button',{onClick:function(){var v=document.getElementById('loginInput').value.trim();if(v)handleLogin(v);}},'Continue')
+      )
+    );
+  }
+
+  return h('div',null,
+    // TOPBAR
+    h('div',{className:'topbar'},
+      h('button',{className:'sidebar-toggle',onClick:function(){setSidebarOpen(!sidebarOpen);}},sidebarOpen?'◀':'▶'),
+      h('div',{className:'topbar-logo'},'⬡ FloorMap'),
+      h('div',{className:'topbar-sep'}),
+      h('div',{className:'topbar-search'},
+        h('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2'},h('circle',{cx:'11',cy:'11',r:'8'}),h('path',{d:'M21 21l-4.35-4.35'})),
+        h('input',{placeholder:'Search station, employee, device...',value:search,onChange:function(e){setSearch(e.target.value);}})
+      ),
+      h('div',{className:'topbar-stats'},
+        h('div',{className:'stat'},h('div',{className:'stat-dot green'}),stats.occupied+' occ'),
+        h('div',{className:'stat'},h('div',{className:'stat-dot yellow'}),stats.available+' avail')
+      ),
+      h('div',{className:'topbar-sep'}),
+      h('div',{style:{fontSize:11,color:'var(--green)',fontFamily:"'IBM Plex Mono',monospace",display:'flex',alignItems:'center',gap:4}},
+        h('span',null,'👤 '+currentUser),
+        h('button',{onClick:handleLogout,style:{background:'none',border:'none',color:'var(--text-dim)',cursor:'pointer',fontSize:10,textDecoration:'underline',fontFamily:'inherit',padding:'0 0 0 4px'}},'logout')
+      ),
+      h('div',{className:'topbar-sep'}),
+      h('button',{className:'topbar-btn'+(view==='map'?' active':''),onClick:function(){setView('map');}},'⊞ Map'),
+      h('button',{className:'topbar-btn'+(view==='list'?' active':''),onClick:function(){setView('list');}},'☰ List')
+    ),
+
+    // BODY
+    h('div',{className:'app-body'},
+      // SIDEBAR
+      h('div',{className:'sidebar'+(sidebarOpen?'':' collapsed')},
+        h('div',{className:'sidebar-section'},
+          h('div',{className:'sidebar-label'},'Zones'),
+          [{id:'F',label:'Main Floor (F)',color:'#4f8cff',count:320},{id:'L',label:'L-Zone',color:'#34d399',count:119},{id:'O',label:'O-Zone',color:'#a78bfa',count:26},{id:'W',label:'W-Zone',color:'#fb923c',count:29}].map(function(f){
+            return h('button',{key:f.id,className:'floor-btn'+(floor===f.id?' active':''),onClick:function(){setFloor(f.id);}},h('div',{className:'floor-icon',style:{background:f.color}}),f.label);
+          })
+        ),
+        h('div',{className:'sidebar-section'},
+          h('div',{className:'sidebar-label'},'Legend'),
+          h('div',{className:'legend-item'},h('div',{className:'legend-swatch',style:{background:'rgba(52,211,153,.15)',border:'1px solid rgba(52,211,153,.3)'}}),'Occupied'),
+          h('div',{className:'legend-item'},h('div',{className:'legend-swatch',style:{background:'#1a1d27',border:'1px solid #2d3140',opacity:.5}}),'Available'),
+          h('div',{className:'legend-item'},h('div',{className:'legend-swatch',style:{background:'transparent',border:'1px solid #fbbf24'}}),'Search Match')
+        ),
+        h('div',{className:'sidebar-section'},
+          h('div',{className:'sidebar-label',onClick:function(){setShowSettings(!showSettings);}},'⚙ Sheets '+(showSettings?'▾':'▸')),
+          showSettings?h('div',null,
+            h('div',{style:{fontSize:10,color:'var(--text-dim)',marginBottom:3}},SCRIPT_URL?'URL hardcoded ✓':'Apps Script URL'),
+            SCRIPT_URL?null:h('input',{className:'settings-input',placeholder:'https://script.google...',value:scriptUrl,onChange:function(e){setScriptUrl(e.target.value);}}),
+            h('button',{className:'sync-btn',onClick:syncFromSheets,disabled:loading},loading?'Syncing...':'↻ Sync from Sheets'),
+            h('button',{className:'sync-btn',onClick:exportCSV,style:{background:'var(--surface2)',color:'var(--text)',border:'1px solid var(--border)'}},'↓ Export CSV'),
+            syncStatus?h('div',{className:'sync-status'},syncStatus):null
+          ):null
+        )
+      ),
+
+      // MAIN VIEW
+      view==='map'?(
+        floor==='F'?h(FloorMapView,{stationData:data,searchQuery:search,matchesSearch:matchesSearch,onSelect:setSelected,zoom:zoom}):
+        h(GenericGridView,{prefix:floor,stationData:data,searchQuery:search,matchesSearch:matchesSearch,onSelect:setSelected})
+      ):h(ListView,{activeFloor:floor,stationData:data,searchQuery:search,onSelect:setSelected})
+    ),
+
+    // ZOOM CONTROLS
+    view==='map'&&floor==='F'?h('div',{className:'zoom-controls'},
+      h('button',{className:'zoom-btn',onClick:function(){setZoom(function(z){return Math.min(z+.1,1.5);});}},'+'),
+      h('div',{className:'zoom-level'},Math.round(zoom*100)+'%'),
+      h('button',{className:'zoom-btn',onClick:function(){setZoom(function(z){return Math.max(z-.1,.3);});}},'−'),
+      h('button',{className:'zoom-btn',onClick:function(){setZoom(.82);},style:{fontSize:11}},'⊡')
+    ):null,
+
+    // MODAL
+    selected?h(StationModal,{stationId:selected,data:data[selected]||{},onSave:saveStation,onClear:clearStation,onClose:function(){setSelected(null);}}):null,
+
+    // TOAST
+    toast?h('div',{className:'toast '+toast.type},toast.msg):null,
+
+    // LOADING
+    loading?h('div',{className:'loading-overlay'},h('div',{className:'spinner'}),h('div',{style:{color:'var(--text-dim)',fontSize:12}},'Syncing...')):null
+  );
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById('root'));
+</script>
+</body>
+</html>
