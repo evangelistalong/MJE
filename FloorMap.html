@@ -237,42 +237,70 @@ function CameraScanner({onResult, scanMode, setScanMode}){
 
   useEffect(()=>()=>{stopCam();},[]);
 
+  // When camOn becomes true, attach the stream to the video
+  useEffect(function(){
+    if(camOn && streamRef.current && videoRef.current){
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(function(){});
+    }
+  },[camOn]);
+
   const startCam=async()=>{
     setCamErr('');
+    // Check HTTPS
+    if(location.protocol==='http:' && location.hostname!=='localhost' && location.hostname!=='127.0.0.1'){
+      setCamErr('Camera requires HTTPS. Your URL must start with https://');
+      return;
+    }
+    // Check API exists
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      setCamErr('Camera API not available in this browser. Try Chrome or Safari.');
+      return;
+    }
     try{
-      let stream;
-      try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},audio:false});}
-      catch(e){stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});}
-      streamRef.current=stream;
-      if(videoRef.current){
-        videoRef.current.srcObject=stream;
-        videoRef.current.setAttribute('playsinline','true');
-        videoRef.current.setAttribute('autoplay','true');
-        videoRef.current.setAttribute('muted','true');
-        await videoRef.current.play();
+      var stream = null;
+      // Try environment (rear) camera first
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false
+        });
+      }catch(e1){
+        // Fallback: any camera, simplest constraints
+        try{
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }catch(e2){
+          throw e2;
+        }
       }
+      streamRef.current = stream;
+      // Set camOn which triggers the useEffect to attach stream
       setCamOn(true);
     }catch(err){
-      let msg='Camera error: '+err.message;
-      if(err.name==='NotAllowedError')msg='Camera permission denied. Allow camera in browser settings, then reload.';
-      if(err.name==='NotFoundError')msg='No camera found.';
-      if(err.name==='NotReadableError')msg='Camera in use by another app.';
-      if(location.protocol==='http:'&&location.hostname!=='localhost')msg='Camera requires HTTPS! Your URL must start with https://';
+      var msg = 'Camera error: ' + err.message;
+      if(err.name==='NotAllowedError' || err.name==='PermissionDeniedError')
+        msg = 'Camera permission denied. Tap the lock icon in your address bar → allow Camera → reload the page.';
+      else if(err.name==='NotFoundError' || err.name==='DevicesNotFoundError')
+        msg = 'No camera found on this device.';
+      else if(err.name==='NotReadableError' || err.name==='TrackStartError')
+        msg = 'Camera is busy. Close other apps using the camera and try again.';
+      else if(err.name==='OverconstrainedError')
+        msg = 'Camera constraints not supported. Trying basic mode...';
       setCamErr(msg);
     }
   };
 
   const stopCam=()=>{
     if(streamRef.current){streamRef.current.getTracks().forEach(t=>t.stop());streamRef.current=null;}
-    if(videoRef.current)videoRef.current.srcObject=null;
+    if(videoRef.current){videoRef.current.srcObject=null;}
     setCamOn(false);
   };
 
   const capture=async()=>{
-    if(!videoRef.current||scanning)return;
+    if(!videoRef.current||scanning||!videoRef.current.videoWidth)return;
     setScanning(true);setProgress('Capturing...');
     const c=document.getElementById('ocrCanvas'),ctx=c.getContext('2d'),v=videoRef.current;
-    c.width=v.videoWidth||640;c.height=v.videoHeight||480;
+    c.width=v.videoWidth;c.height=v.videoHeight;
     ctx.drawImage(v,0,0);
     const id=ctx.getImageData(0,0,c.width,c.height),d=id.data;
     for(let i=0;i<d.length;i+=4){const g=d[i]*.299+d[i+1]*.587+d[i+2]*.114;const e=g<128?Math.max(0,g*.6):Math.min(255,g*1.4+30);d[i]=d[i+1]=d[i+2]=e;}
@@ -295,14 +323,21 @@ function CameraScanner({onResult, scanMode, setScanMode}){
       React.createElement('button',{className:'scan-mode-btn'+(scanMode==='hostname'?' active':''),onClick:()=>setScanMode('hostname')},'💻 Host')
     ),
     camErr?React.createElement('div',{className:'cam-error'},camErr):null,
-    camOn?React.createElement('div',{className:'camera-container'},
-      React.createElement('video',{ref:videoRef,playsInline:true,autoPlay:true,muted:true}),
+    React.createElement('div',{className:'camera-container',style:{display:camOn?'block':'none'}},
+      React.createElement('video',{
+        ref:videoRef,
+        playsInline:true,
+        autoPlay:true,
+        muted:true,
+        webkit_playsinline:'true',
+        style:{width:'100%',height:'auto',maxHeight:250,display:'block',objectFit:'cover'}
+      }),
       React.createElement('div',{className:'camera-overlay'},
         React.createElement('div',{className:'scan-frame'},
           React.createElement('span',{className:'scan-frame-label'},scanMode==='badge'?'Align ID Badge':'Align hostname sticker')
         )
       )
-    ):null,
+    ),
     progress?React.createElement('div',{className:'ocr-progress'},React.createElement('div',{className:'ocr-spinner'}),progress):null,
     React.createElement('div',{className:'scan-controls'},
       !camOn?React.createElement('button',{className:'capture-btn open-cam',onClick:startCam},'📷 Open Camera'):
